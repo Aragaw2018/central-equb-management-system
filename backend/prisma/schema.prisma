@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  fullName        String
+  firstName       String   // አዲስ
+  fatherName      String   // አዲስ       String
+  phoneNumber     String   @unique
+  email           String?  @unique  
+  password        String
+   bankName        String?  
+  accountHolder   String?  
+  accountNumber   String?              
+  role            String   @default("MEMBER")
+  faydaId         String?  @unique
+  createdAt       DateTime @default(now())
+  isApproved      Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  kycStatus       String   @default("PENDING")  // PENDING, VERIFIED, REJECTED
+  kycNote         String?
+  faydaImageUrl   String?  // relative path to uploaded Fayda ID photo
+   otpCode      String?   
+  otpExpires   DateTime? 
+  
+
+  ownedGroups     EqubGroup[]    @relation("OrganizerGroups")
+  memberships     EqubMembership[]
+  drawWins        DrawResult[]   @relation("DrawWins")
+  guarantorRequests   Guarantor[] @relation("GuarantorRequests")
+}
+
+model EqubPlan {
+  id           String      @id @default(uuid())
+  category     String      // DAILY, WEEKLY, MONTHLY
+  amount       Decimal     @db.Decimal(12, 2)
+  penalty      Decimal     @db.Decimal(10, 2)
+  maxMembers   Int
+  description  String?
+  createdAt    DateTime    @default(now())
+
+  groups       EqubGroup[]
+}
+
+model EqubGroup {
+  id            String           @id @default(uuid())
+  name          String
+  description   String?
+  planId        String
+  plan          EqubPlan         @relation(fields: [planId], references: [id])
+  organizerId   String
+  organizer     User             @relation("OrganizerGroups", fields: [organizerId], references: [id])
+  status        String           @default("OPEN")  // OPEN, ACTIVE, COMPLETED
+  startDate     DateTime
+  createdAt     DateTime         @default(now())
+    cycleNumber   Int              @default(1)
+ 
+  currentRound  Int              @default(1) 
+
+  bankName      String?
+  accountName   String?
+  accountNumber String?
+  drawDay       String?          
+  drawTime      String?          
+
+  memberships   EqubMembership[]
+  groupPayments GroupPayment[]
+  drawResults   DrawResult[]
+}
+
+model EqubMembership {
+  id        String         @id @default(uuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id])
+  groupId   String
+  group     EqubGroup      @relation(fields: [groupId], references: [id])
+  status    String         @default("PENDING")  
+  joinedAt  DateTime       @default(now())
+  
+  hasWon    Boolean        @default(false)
+
+  payments  GroupPayment[]
+
+  @@unique([userId, groupId])
+}
+
+// Payment submitted by a member for a specific group round
+model GroupPayment {
+  id             String         @id @default(uuid())
+  membershipId   String
+  membership     EqubMembership @relation(fields: [membershipId], references: [id])
+  groupId        String
+  group          EqubGroup      @relation(fields: [groupId], references: [id])
+  amount         Decimal        @db.Decimal(12, 2)
+  
+  roundNumber    Int            @default(1) 
+cycleNumber    Int            @default(1)
+  transactionId  String         @unique   
+  receiptImageUrl String?                  
+  status         String         @default("PENDING") 
+  note           String?                  
+  submittedAt    DateTime       @default(now())
+  reviewedAt     DateTime?
+@@unique([membershipId, cycleNumber, roundNumber]) 
+
+}
+
+// Key-value store for admin-controlled system settings
+model SystemSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// Records one completed lottery draw for a group
+model DrawResult {
+  id          String    @id @default(uuid())
+  groupId     String
+  group       EqubGroup @relation(fields: [groupId], references: [id])
+  winnerId    String
+  winner      User      @relation("DrawWins", fields: [winnerId], references: [id])
+  roundNumber Int       @default(1)
+  cycleNumber    Int            @default(1)
+  potAmount   Decimal   @db.Decimal(12, 2) 
+
+  drawnAt     DateTime  @default(now())
+  guarantorProvided Boolean @default(false)
+  isFundsReleased Boolean @default(false)
+  guarantor    Guarantor?
+  @@unique([groupId, cycleNumber, roundNumber])
+}
+
+// Guarantor (Wase) model for winners
+model Guarantor {
+  id              String     @id @default(uuid())
+  drawResultId    String     @unique
+  drawResult      DrawResult @relation(fields: [drawResultId], references: [id])
+  guarantorId     String
+  guarantor       User       @relation("GuarantorRequests", fields: [guarantorId], references: [id])
+  status          String     @default("PENDING")    // PENDING, ACCEPTED, REJECTED
+  documentUrl     String?    // legacy single doc field
+  // Asset-backed documentation
+  checkNumber     String?
+  checkImageUrl   String?    // uploaded cheque photo path
+  landDocUrl      String?    // uploaded land title deed photo path
+  documentStatus  String     @default("PENDING")    // PENDING, VERIFIED, REJECTED
+  createdAt       DateTime   @default(now())
+  respondedAt     DateTime?
+}
