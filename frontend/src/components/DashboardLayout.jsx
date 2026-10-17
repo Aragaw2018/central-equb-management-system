@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, History, Settings,
   LogOut, Menu, X, User as UserIcon,
   ShieldAlert, PlusCircle, LayoutGrid, ScanFace, Tv2,
-  ChevronRight, DollarSign, FileText
+  ChevronRight, DollarSign, FileText, ArrowLeftRight, Building2,
 } from 'lucide-react';
 
 function DashboardLayout({ children, role, headerExtra }) {
@@ -16,7 +16,8 @@ function DashboardLayout({ children, role, headerExtra }) {
 
   const handleLogout = () => {
     localStorage.removeItem('user');
-    navigate('/');
+    localStorage.removeItem('token');
+    navigate('/login');
   };
 
   // 1. ADMIN NAVIGATION MENU
@@ -49,61 +50,90 @@ function DashboardLayout({ children, role, headerExtra }) {
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#F8FAFC] flex font-sans antialiased text-slate-900">
-      
+
       {/* ─── SIDEBAR NAVIGATION (FIXED & STICKY) ─── */}
-      <aside 
-        className={`${isSidebarOpen ? 'w-80' : 'w-24'} bg-white border-r border-slate-200/60 transition-all duration-300 ease-in-out flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] h-full z-50 shrink-0`}
+      <aside
+        className={`${isSidebarOpen ? 'w-80' : 'w-24'} bg-[#005C53] border-r border-[#004a42] transition-all duration-300 ease-in-out flex flex-col h-full z-50 shrink-0 shadow-[4px_0_32px_rgba(0,0,0,0.35)]`}
       >
 
         {/* Brand Logo Section */}
-        <div className="p-8 mb-4 shrink-0">
+        <div className="px-6 py-7 mb-2 shrink-0 border-b border-white/10">
           <div className="flex items-center gap-4 group cursor-pointer">
-            <div className="bg-white rounded-full p-1 shadow-md border border-slate-100 group-hover:rotate-12 transition-transform duration-500">
-              <img 
-                src={logoImg} 
-                alt="Central Equb Logo" 
-                className="w-12 h-12 object-contain mix-blend-multiply" 
+            {/* Logo ring */}
+            <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center ring-2 ring-white/25 shadow-lg shadow-black/30 shrink-0 overflow-hidden group-hover:ring-white/40 transition-all duration-300">
+              <img
+                src={logoImg}
+                alt="Central Equb Logo"
+                className="w-10 h-10 object-contain"
               />
             </div>
 
             {isSidebarOpen && (
               <div className="animate-in fade-in slide-in-from-left-2 duration-500 overflow-hidden">
-                <h1 className="font-black text-lg text-slate-800 tracking-tighter leading-tight uppercase whitespace-nowrap">
-                  Central Equb <br />
-                  <span className="text-blue-600 text-[10px] tracking-[0.3em]">Management System</span> 
+                <h1 className="font-black text-sm text-white tracking-wide leading-tight uppercase whitespace-nowrap">
+                  Central Equb
                 </h1>
+                <span className="text-white/70 text-[9px] tracking-[0.25em] font-medium whitespace-nowrap">
+                  Management System
+                </span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Navigation Links (Scrollable if many items) */}
-        <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
+        {/* Role badge (only when expanded) */}
+        {isSidebarOpen && (
+          <div className="px-5 mb-3">
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest w-fit ${role === 'ADMIN' ? 'bg-white/15 text-white border border-white/20' :
+              role === 'ORGANIZER' ? 'bg-orange-500/15 text-orange-300 border border-orange-500/25' :
+                user?.role === 'ORGANIZER' ? 'bg-teal-400/20 text-teal-200 border border-teal-400/30' :
+                  'bg-teal-500/15 text-teal-300 border border-teal-500/25'
+              }`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+              {user?.role === 'ORGANIZER' && role === 'MEMBER'
+                ? '↔ Member View'
+                : role + ' Dashboard'}
+            </div>
+          </div>
+        )}
+
+        {/* Navigation Links */}
+        <nav className="flex-1 px-3 space-y-1 overflow-y-auto pb-2">
           {menuItems.map((item, index) => {
             const isActive = location.pathname === item.path;
             return (
               <Link
                 key={index}
                 to={item.path}
-                className={`flex items-center gap-4 p-4 rounded-[1.4rem] transition-all duration-300 group relative ${
-                  isActive
-                    ? 'bg-blue-600 text-white shadow-[0_10px_20px_-5px_rgba(37,99,235,0.3)]'
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-blue-600'
-                }`}
+                title={!isSidebarOpen ? item.label : undefined}
+                className={`flex items-center gap-3.5 transition-all duration-200 group relative ${isSidebarOpen ? 'px-4 py-3 rounded-xl' : 'justify-center p-3 rounded-xl mx-auto'
+                  } ${isActive
+                    ? 'bg-[#00A896] text-white font-bold shadow-sm rounded-xl'
+                    : 'text-white font-medium hover:bg-white/10'
+                  }`}
               >
-                <div className={`${isActive ? 'text-white' : 'text-slate-400 group-hover:text-blue-600 transition-colors'} shrink-0`}>
+                {/* Icon */}
+                <div className={`shrink-0 transition-colors duration-200 ${isActive ? 'text-emerald-300' : 'text-white/75 group-hover:text-white'
+                  }`}>
                   {item.icon}
                 </div>
-                
+
+                {/* Label */}
                 {isSidebarOpen && (
-                  <span className={`font-bold tracking-tight text-sm whitespace-nowrap ${isActive ? 'opacity-100' : 'opacity-80 group-hover:opacity-100'}`}>
+                  <span className="text-sm whitespace-nowrap tracking-tight">
                     {item.label}
                   </span>
                 )}
 
+                {/* Active dot (collapsed mode) */}
+                {isActive && !isSidebarOpen && (
+                  <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-white rounded-full" />
+                )}
+
+                {/* Trailing chevron (expanded + active) */}
                 {isActive && isSidebarOpen && (
-                  <div className="ml-auto animate-in fade-in zoom-in duration-300 shrink-0">
-                    <ChevronRight size={16} className="text-white/60" />
+                  <div className="ml-auto shrink-0">
+                    <ChevronRight size={14} className="text-white/50" />
                   </div>
                 )}
               </Link>
@@ -111,14 +141,19 @@ function DashboardLayout({ children, role, headerExtra }) {
           })}
         </nav>
 
-        {/* User Sign Out Action */}
-        <div className="p-6 mt-auto shrink-0">
+        {/* Sign Out Button */}
+        <div className="p-4 mt-auto shrink-0 border-t border-white/10">
           <button
             onClick={handleLogout}
-            className={`w-full flex items-center gap-4 p-4 rounded-[1.4rem] text-red-500 hover:bg-red-50 transition-all duration-300 font-black group ${!isSidebarOpen && 'justify-center'}`}
+            className={`w-full bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold py-3 rounded-xl shadow-md flex items-center justify-center gap-2.5 transition-all duration-200 ${isSidebarOpen ? 'px-4' : 'px-0'
+              }`}
           >
-            <LogOut size={22} className="group-hover:-translate-x-1 transition-transform shrink-0" />
-            {isSidebarOpen && <span className="uppercase text-[11px] tracking-widest font-black whitespace-nowrap">Sign Out</span>}
+            <LogOut size={18} className="shrink-0 text-white" />
+            {isSidebarOpen && (
+              <span className="text-[11px] uppercase tracking-widest font-black text-white whitespace-nowrap">
+                Sign Out
+              </span>
+            )}
           </button>
         </div>
       </aside>
@@ -135,17 +170,42 @@ function DashboardLayout({ children, role, headerExtra }) {
             {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
 
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-4">
+            {/* ── Role Switcher — shown only for ORGANIZER base role ── */}
+            {user?.role === 'ORGANIZER' && role === 'ORGANIZER' && (
+              <button
+                onClick={() => navigate('/member-dashboard')}
+                title="Switch to Member View to join groups and save"
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl border border-teal-600/30 text-teal-700 bg-white hover:bg-teal-50 font-medium text-sm transition-all shadow-sm animate-in fade-in duration-300"
+              >
+                <ArrowLeftRight size={15} className="text-teal-600 shrink-0" />
+                <span className="whitespace-nowrap hidden sm:inline">Switch to Member View</span>
+              </button>
+            )}
+
+            {user?.role === 'ORGANIZER' && role === 'MEMBER' && (
+              <button
+                onClick={() => navigate('/organizer-dashboard')}
+                title="Return to your Organizer Dashboard"
+                className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-[#005C53] hover:bg-[#004a42] text-white font-semibold text-sm shadow-md transition-all animate-in fade-in duration-300"
+              >
+                <Building2 size={15} className="shrink-0" />
+                <span className="whitespace-nowrap hidden sm:inline">Return to Organizer</span>
+              </button>
+            )}
+
             {headerExtra && <div className="animate-in fade-in duration-500">{headerExtra}</div>}
-            <div className="flex items-center gap-5 pl-8 border-l border-slate-200">
+            <div className="flex items-center gap-5 pl-4 border-l border-slate-200">
               <div className="text-right hidden md:block">
                 <p className="text-sm font-black text-slate-800 leading-none mb-1.5">{user?.fullName || 'User Profile'}</p>
-                <span className={`text-[9px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider shadow-sm border ${
-                  role === 'ADMIN' ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                <span className={`text-[9px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider shadow-sm border ${role === 'ADMIN' ? 'bg-purple-50 text-purple-600 border-purple-100' :
                   role === 'ORGANIZER' ? 'bg-orange-50 text-orange-600 border-orange-100' :
-                  'bg-blue-50 text-blue-600 border-blue-100'
-                }`}>
-                  {role} Account
+                    user?.role === 'ORGANIZER' ? 'bg-teal-50 text-teal-700 border-teal-200' :
+                      'bg-blue-50 text-blue-600 border-blue-100'
+                  }`}>
+                  {user?.role === 'ORGANIZER' && role === 'MEMBER'
+                    ? 'Member View'
+                    : role + ' Account'}
                 </span>
               </div>
               <div className="w-14 h-14 bg-white rounded-[1.3rem] flex items-center justify-center text-slate-400 border-2 border-slate-100 shadow-sm overflow-hidden ring-4 ring-slate-50 group cursor-pointer hover:border-blue-200 transition-all">

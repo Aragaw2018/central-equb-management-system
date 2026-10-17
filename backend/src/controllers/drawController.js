@@ -9,39 +9,44 @@ const startDraw = async (req, res) => {
     try {
         const group = await prisma.equbGroup.findUnique({
             where: { id: groupId },
-            include: { plan: true }
+            include: { plan: true },
         });
 
-        if (!group) return res.status(404).json({ error: "Group not found!" });
+        if (!group) return res.status(404).json({ error: 'Group not found!' });
 
-        // 🎯 Payment verification check (Extra Safety)
+        // Informational pre-check: find unpaid members to include in the response,
+        // but do NOT block the draw — triggerDraw handles eligibility filtering.
         const unpaidMembers = await prisma.equbMembership.findMany({
             where: {
-                groupId: groupId,
+                groupId,
                 status: 'APPROVED',
                 payments: {
                     none: {
                         roundNumber: group.currentRound,
                         cycleNumber: group.cycleNumber,
-                        status: 'APPROVED'
-                    }
-                }
+                        status: 'APPROVED',
+                    },
+                },
             },
-            include: { user: true }
+            include: { user: { select: { id: true, fullName: true } } },
         });
 
-        if (unpaidMembers.length > 0) {
-            const names = unpaidMembers.map(m => m.user.fullName).join(", ");
-            return res.status(400).json({ 
-                error: `There are members whose payments are not approved for round ${group.currentRound} (Cycle ${group.cycleNumber}): ${names}` 
-            });
-        }
-
         const drawData = await triggerDraw(groupId);
-        res.json({ message: "The draw has started.", drawData });
+
+        return res.json({
+            message: 'The draw has started.',
+            drawData,
+            // Surface unpaid members to the client as a warning (not an error)
+            unpaidMembers: unpaidMembers.map(m => ({
+                userId: m.user.id,
+                fullName: m.user.fullName,
+            })),
+            unpaidCount: unpaidMembers.length,
+        });
 
     } catch (error) {
-        res.status(400).json({ error: error.message });
+        // triggerDraw only throws when ZERO paid members exist — treat as 400
+        return res.status(400).json({ error: error.message });
     }
 };
 

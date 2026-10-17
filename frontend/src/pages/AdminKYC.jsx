@@ -4,11 +4,29 @@ import axiosInstance from '../api/axiosInstance';
 import {
   ScanFace, CheckCircle2, XCircle, AlertCircle, Loader2,
   Clock, BadgeCheck, ShieldX, Search,
-  CreditCard, X, ImageOff, ZoomIn, ExternalLink,
+  CreditCard, X, ImageOff, ZoomIn, ExternalLink, UserCheck
 } from 'lucide-react';
 
 // Environment variable with localhost fallback
 const API_BASE = import.meta.env?.VITE_API_BASE_URL || 'http://localhost:5000';
+
+// Helper to reliably resolve uploaded image URLs
+const resolveImageUrl = (path) => {
+  if (!path) return null;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  const cleanBase = API_BASE.replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPath}`;
+};
+
+// Helper for clean display name fallback
+const getUserDisplayName = (user) => {
+  if (!user) return 'Unnamed User';
+  if (user.fullName && user.fullName.trim() !== '') return user.fullName;
+  const combined = [user.firstName, user.fatherName].filter(Boolean).join(' ');
+  if (combined.trim() !== '') return combined;
+  return `Member (${user.phoneNumber || 'No Phone'})`;
+};
 
 const KYC_META = {
   PENDING: { label: 'Pending', style: 'bg-amber-100 text-amber-700', dot: 'bg-amber-400' },
@@ -17,16 +35,16 @@ const KYC_META = {
 };
 
 function IDImageModal({ user, onClose }) {
-  const imageUrl = user?.faydaImageUrl ? `${API_BASE}${user.faydaImageUrl}` : null;
+  const imageUrl = resolveImageUrl(user?.faydaImageUrl);
   const [imgError, setImgError] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
+  const displayName = getUserDisplayName(user);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') onClose();
     };
     
-    // Prevent body scroll when modal is active
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', handleKeyDown);
 
@@ -46,14 +64,14 @@ function IDImageModal({ user, onClose }) {
       aria-modal="true"
     >
       <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 fade-in duration-200">
-        <div className="flex items-center justify-between px-8 py-6 border-b border-slate-50">
+        <div className="flex items-center justify-between px-8 py-6 border-b border-slate-100">
           <div className="flex items-center gap-4">
-            <div className="w-11 h-11 bg-blue-50 rounded-[1rem] flex items-center justify-center shrink-0">
-              <ScanFace size={20} className="text-blue-600" />
+            <div className="w-11 h-11 bg-teal-50 rounded-[1rem] flex items-center justify-center shrink-0">
+              <ScanFace size={20} className="text-[#005C53]" />
             </div>
             <div>
-              <h3 className="font-black text-slate-800 text-lg leading-tight">National ID Document</h3>
-              <p className="text-xs font-bold text-slate-400 mt-0.5">{user.fullName}</p>
+              <h3 className="font-black text-slate-800 text-lg leading-tight">National Fayda ID Document</h3>
+              <p className="text-xs font-bold text-slate-400 mt-0.5">{displayName}</p>
             </div>
           </div>
           <button
@@ -65,10 +83,10 @@ function IDImageModal({ user, onClose }) {
           </button>
         </div>
 
-        <div className="flex flex-wrap gap-4 px-8 py-4 bg-slate-50/60 border-b border-slate-50">
+        <div className="flex flex-wrap gap-4 px-8 py-4 bg-slate-50/70 border-b border-slate-100">
           <div>
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Fayda ID Number</p>
-            <p className="font-black text-slate-700 font-mono text-sm">{user.faydaId}</p>
+            <p className="font-black text-slate-800 font-mono text-sm">{user.faydaId || 'N/A'}</p>
           </div>
           <div>
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Phone</p>
@@ -93,22 +111,22 @@ function IDImageModal({ user, onClose }) {
                 <ImageOff size={28} className="text-slate-300" />
               </div>
               <div className="text-center">
-                <p className="font-black text-slate-500">No ID photo uploaded</p>
-                <p className="text-slate-400 text-sm font-medium mt-1">This user did not attach a document during signup.</p>
+                <p className="font-black text-slate-600">No ID photo uploaded</p>
+                <p className="text-slate-400 text-sm font-medium mt-1">This user registered using Fayda number only without image upload.</p>
               </div>
             </div>
           ) : (
-            <div className="relative rounded-[1.5rem] overflow-hidden bg-slate-100 border border-slate-100 min-h-[250px] flex items-center justify-center">
+            <div className="relative rounded-[1.5rem] overflow-hidden bg-slate-100 border border-slate-200 min-h-[260px] flex items-center justify-center">
               {!imgLoaded && !imgError && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-100 z-10">
-                  <Loader2 size={28} className="animate-spin text-slate-400" />
+                  <Loader2 size={28} className="animate-spin text-[#005C53]" />
                 </div>
               )}
 
               {!imgError ? (
                 <img
                   src={imageUrl}
-                  alt={`${user.fullName} Fayda ID`}
+                  alt={`${displayName} Fayda ID`}
                   onLoad={() => setImgLoaded(true)}
                   onError={() => setImgError(true)}
                   className={`w-full object-contain max-h-[420px] transition-opacity duration-300 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
@@ -125,7 +143,7 @@ function IDImageModal({ user, onClose }) {
                   href={imageUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-900/60 hover:bg-slate-900/80 text-white text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full transition-all"
+                  className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-900/70 hover:bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full transition-all"
                 >
                   <ExternalLink size={11} /> Open full size
                 </a>
@@ -134,8 +152,8 @@ function IDImageModal({ user, onClose }) {
           )}
         </div>
 
-        <div className="px-8 py-5 border-t border-slate-50 flex justify-end">
-          <button onClick={onClose} className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-sm rounded-[1.1rem] transition-all">
+        <div className="px-8 py-5 border-t border-slate-100 flex justify-end">
+          <button onClick={onClose} className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm rounded-[1rem] transition-all">
             Close
           </button>
         </div>
@@ -171,8 +189,10 @@ function AdminKYC() {
     setFetchError(null);
     try {
       const res = await axiosInstance.get(`/admin/kyc?status=${status}`);
-      setUsers(res.data.users);
-      setCounts((prev) => ({ ...prev, [status]: res.data.users.length }));
+      // Strictly filter out ADMIN accounts
+      const nonAdminUsers = (res.data.users || []).filter((u) => u.role !== 'ADMIN');
+      setUsers(nonAdminUsers);
+      setCounts((prev) => ({ ...prev, [status]: nonAdminUsers.length }));
     } catch {
       setFetchError('Failed to load KYC requests. Please try again.');
     } finally {
@@ -184,7 +204,7 @@ function AdminKYC() {
     fetchKYC(activeTab);
   }, [activeTab, fetchKYC]);
 
-  const handleApprove = async (userId, fullName) => {
+  const handleApprove = async (userId, userName) => {
     setProcessing(userId);
     try {
       await axiosInstance.patch(`/admin/kyc/${userId}`, { status: 'VERIFIED' });
@@ -194,7 +214,7 @@ function AdminKYC() {
         PENDING: Math.max(0, prev.PENDING - 1),
         VERIFIED: prev.VERIFIED + 1,
       }));
-      showToast('success', `KYC approved for ${fullName}.`);
+      showToast('success', `KYC verified for ${userName}.`);
     } catch (err) {
       showToast('error', err.response?.data?.error || 'Approval failed.');
     } finally {
@@ -205,6 +225,7 @@ function AdminKYC() {
   const handleRejectConfirm = async () => {
     if (!rejectTarget || !rejectNote.trim()) return;
     setProcessing(rejectTarget.id);
+    const targetName = getUserDisplayName(rejectTarget);
     try {
       await axiosInstance.patch(`/admin/kyc/${rejectTarget.id}`, {
         status: 'REJECTED',
@@ -216,7 +237,7 @@ function AdminKYC() {
         PENDING: Math.max(0, prev.PENDING - 1),
         REJECTED: prev.REJECTED + 1,
       }));
-      showToast('success', `KYC rejected for ${rejectTarget.fullName}.`);
+      showToast('success', `KYC rejected for ${targetName}.`);
       setRejectTarget(null);
       setRejectNote('');
     } catch (err) {
@@ -226,14 +247,15 @@ function AdminKYC() {
     }
   };
 
+  // Filter with clean fallback for names and strict non-admin exclusion
   const filtered = users.filter((u) => {
+    if (u.role === 'ADMIN') return false;
     const q = search.toLowerCase().trim();
     if (!q) return true;
-    return (
-      u.fullName?.toLowerCase().includes(q) ||
-      u.phoneNumber?.toLowerCase().includes(q) ||
-      u.faydaId?.toLowerCase().includes(q)
-    );
+    const name = getUserDisplayName(u).toLowerCase();
+    const phone = (u.phoneNumber || '').toLowerCase();
+    const fayda = (u.faydaId || '').toLowerCase();
+    return name.includes(q) || phone.includes(q) || fayda.includes(q);
   });
 
   return (
@@ -242,7 +264,7 @@ function AdminKYC() {
 
       {toast && (
         <div className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-6 py-4 rounded-[1.5rem] shadow-2xl font-bold text-sm transition-all duration-300 ${
-          toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
+          toast.type === 'success' ? 'bg-[#005C53] text-white' : 'bg-red-500 text-white'
         }`}>
           {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
           {toast.msg}
@@ -250,7 +272,7 @@ function AdminKYC() {
       )}
 
       {rejectTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] shadow-2xl max-w-md w-full p-8 animate-in zoom-in-95 duration-200">
             <div className="flex items-start justify-between mb-6">
               <div className="flex items-center gap-4">
@@ -259,7 +281,7 @@ function AdminKYC() {
                 </div>
                 <div>
                   <h3 className="text-lg font-black text-slate-800">Reject KYC</h3>
-                  <p className="text-xs font-bold text-slate-400 mt-0.5">{rejectTarget.fullName}</p>
+                  <p className="text-xs font-bold text-slate-400 mt-0.5">{getUserDisplayName(rejectTarget)}</p>
                 </div>
               </div>
               <button onClick={() => setRejectTarget(null)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-xl transition-all">
@@ -270,7 +292,7 @@ function AdminKYC() {
             <div className="bg-slate-50 rounded-[1.5rem] p-4 mb-6 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="font-bold text-slate-500">Fayda ID</span>
-                <span className="font-black text-slate-700 font-mono">{rejectTarget.faydaId}</span>
+                <span className="font-black text-slate-800 font-mono">{rejectTarget.faydaId || 'N/A'}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="font-bold text-slate-500">Phone</span>
@@ -285,7 +307,7 @@ function AdminKYC() {
               rows={3}
               value={rejectNote}
               onChange={(e) => setRejectNote(e.target.value)}
-              placeholder="e.g. ID image is blurry…"
+              placeholder="e.g. Fayda ID number mismatch…"
               className="w-full px-4 py-3 bg-slate-50 rounded-[1.2rem] border-2 border-transparent focus:border-red-400 outline-none text-sm font-bold text-slate-700 resize-none transition-colors mb-4 placeholder:font-medium placeholder:text-slate-400"
             />
             <div className="flex flex-wrap gap-2 mb-6">
@@ -306,14 +328,14 @@ function AdminKYC() {
               <button
                 onClick={() => setRejectTarget(null)}
                 disabled={processing === rejectTarget?.id}
-                className="flex-1 py-3 rounded-[1.2rem] border-2 border-slate-100 text-slate-500 font-black hover:bg-slate-50 transition-all"
+                className="flex-1 py-3 rounded-[1.2rem] border-2 border-slate-100 text-slate-500 font-bold hover:bg-slate-50 transition-all"
               >
                 Cancel
               </button>
               <button
                 onClick={handleRejectConfirm}
                 disabled={!rejectNote.trim() || processing === rejectTarget?.id}
-                className="flex-1 py-3 rounded-[1.2rem] bg-red-500 hover:bg-red-600 text-white font-black shadow-lg shadow-red-100 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 py-3 rounded-[1.2rem] bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-100 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {processing === rejectTarget?.id ? <Loader2 size={16} className="animate-spin" /> : <XCircle size={16} />}
                 Reject KYC
@@ -324,18 +346,18 @@ function AdminKYC() {
       )}
 
       <div className="mb-8">
-        <h1 className="text-3xl font-black text-slate-800 tracking-tight">KYC Verification</h1>
-        <p className="text-slate-400 font-bold uppercase text-xs tracking-widest mt-1">National ID (Fayda) review queue</p>
+        <h1 className="text-3xl font-black text-slate-900 tracking-tight">KYC Verification</h1>
+        <p className="text-slate-400 font-bold uppercase text-xs tracking-widest mt-1">National Fayda ID review & compliance queue</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-10">
         <StatCard icon={<Clock size={22} className="text-amber-500" />} label="Pending Review" value={counts.PENDING} accent="bg-amber-50" />
-        <StatCard icon={<BadgeCheck size={22} className="text-emerald-600" />} label="Verified" value={counts.VERIFIED} accent="bg-emerald-50" />
+        <StatCard icon={<BadgeCheck size={22} className="text-emerald-600" />} label="Verified Members" value={counts.VERIFIED} accent="bg-emerald-50" />
         <StatCard icon={<ShieldX size={22} className="text-red-500" />} label="Rejected" value={counts.REJECTED} accent="bg-red-50" />
       </div>
 
       <div className="bg-white rounded-[2rem] border border-slate-100 shadow-xl overflow-hidden">
-        <div className="p-6 border-b border-slate-50 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+        <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
           <div className="relative w-full sm:w-80">
             <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
@@ -343,7 +365,7 @@ function AdminKYC() {
               placeholder="Search name, phone, or Fayda ID…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 bg-slate-50 rounded-[1.2rem] border-2 border-transparent focus:border-blue-500 outline-none text-sm font-bold text-slate-700 placeholder:font-medium placeholder:text-slate-400 transition-colors"
+              className="w-full pl-11 pr-4 py-3 bg-slate-50 rounded-[1.2rem] border-2 border-transparent focus:border-[#005C53] outline-none text-sm font-bold text-slate-700 placeholder:font-medium placeholder:text-slate-400 transition-colors"
             />
           </div>
           <div className="flex items-center gap-2">
@@ -356,12 +378,12 @@ function AdminKYC() {
                     ? tab === 'VERIFIED' ? 'bg-emerald-500 text-white shadow-md shadow-emerald-100'
                       : tab === 'REJECTED' ? 'bg-red-500 text-white shadow-md shadow-red-100'
                         : 'bg-amber-400 text-white shadow-md shadow-amber-100'
-                    : 'bg-slate-50 text-slate-400 hover:bg-slate-100'
+                    : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
                 }`}
               >
                 {KYC_META[tab].label}
                 {counts[tab] > 0 && (
-                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${activeTab === tab ? 'bg-white/30' : 'bg-slate-200 text-slate-500'}`}>
+                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${activeTab === tab ? 'bg-white/30' : 'bg-slate-200 text-slate-600'}`}>
                     {counts[tab]}
                   </span>
                 )}
@@ -372,8 +394,8 @@ function AdminKYC() {
 
         {loading && (
           <div className="flex items-center justify-center py-24 gap-3">
-            <Loader2 size={36} className="animate-spin text-slate-300" />
-            <span className="font-bold text-slate-400">Loading requests…</span>
+            <Loader2 size={36} className="animate-spin text-[#005C53]" />
+            <span className="font-bold text-slate-400">Loading verification queue…</span>
           </div>
         )}
 
@@ -381,44 +403,49 @@ function AdminKYC() {
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <AlertCircle size={36} className="text-red-300" />
             <p className="text-red-400 font-bold">{fetchError}</p>
-            <button onClick={() => fetchKYC(activeTab)} className="px-6 py-3 bg-blue-600 text-white rounded-[1.2rem] font-bold hover:bg-blue-700 transition-all">Retry</button>
+            <button onClick={() => fetchKYC(activeTab)} className="px-6 py-2.5 bg-[#005C53] text-white rounded-[1rem] font-bold hover:bg-[#004840] transition-all">Retry</button>
           </div>
         )}
 
         {!loading && !fetchError && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 gap-4">
-            <div className="w-20 h-20 bg-slate-50 rounded-[1.5rem] flex items-center justify-center">
-              <ScanFace size={36} className="text-slate-300" />
+            <div className="w-20 h-20 bg-teal-50/60 rounded-[1.5rem] flex items-center justify-center">
+              <UserCheck size={36} className="text-[#005C53]" />
             </div>
             <div className="text-center">
-              <p className="font-black text-slate-500 text-lg">
-                {search ? 'No results match your search' : `No ${KYC_META[activeTab].label.toLowerCase()} requests`}
+              <p className="font-black text-slate-600 text-lg">
+                {search ? 'No users match your search' : `No ${KYC_META[activeTab].label.toLowerCase()} requests`}
               </p>
+              <p className="text-slate-400 text-xs font-medium mt-1">Queue is clear and up to date.</p>
             </div>
           </div>
         )}
 
         {!loading && !fetchError && filtered.length > 0 && (
-          <div className="divide-y divide-slate-50">
-            {filtered.map((user) => (
-              <KYCRow
-                key={user.id}
-                user={user}
-                activeTab={activeTab}
-                processing={processing}
-                onApprove={() => handleApprove(user.id, user.fullName)}
-                onReject={() => { setRejectTarget(user); setRejectNote(''); }}
-                onViewID={() => setViewTarget(user)}
-              />
-            ))}
+          <div className="divide-y divide-slate-100">
+            {filtered.map((user) => {
+              const displayName = getUserDisplayName(user);
+              return (
+                <KYCRow
+                  key={user.id}
+                  user={user}
+                  displayName={displayName}
+                  activeTab={activeTab}
+                  processing={processing}
+                  onApprove={() => handleApprove(user.id, displayName)}
+                  onReject={() => { setRejectTarget(user); setRejectNote(''); }}
+                  onViewID={() => setViewTarget(user)}
+                />
+              );
+            })}
           </div>
         )}
 
         {!loading && !fetchError && (
-          <div className="px-8 py-4 border-t border-slate-50">
+          <div className="px-8 py-4 border-t border-slate-100">
             <p className="text-xs text-slate-400 font-bold">
-              Showing <span className="text-slate-600">{filtered.length}</span> of{' '}
-              <span className="text-slate-600">{users.length}</span> {KYC_META[activeTab].label.toLowerCase()} requests
+              Showing <span className="text-slate-700 font-bold">{filtered.length}</span> of{' '}
+              <span className="text-slate-700 font-bold">{users.length}</span> {KYC_META[activeTab].label.toLowerCase()} requests
             </p>
           </div>
         )}
@@ -435,32 +462,33 @@ function StatCard({ icon, label, value, accent }) {
       </div>
       <div>
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</p>
-        <p className="text-2xl font-black text-slate-800">{value}</p>
+        <p className="text-2xl font-black text-slate-900">{value}</p>
       </div>
     </div>
   );
 }
 
-function KYCRow({ user, activeTab, processing, onApprove, onReject, onViewID }) {
+function KYCRow({ user, displayName, activeTab, processing, onApprove, onReject, onViewID }) {
   const meta = KYC_META[user.kycStatus] || KYC_META.PENDING;
   const isProcessing = processing === user.id;
   const hasImage = Boolean(user.faydaImageUrl);
-  const thumbUrl = hasImage ? `${API_BASE}${user.faydaImageUrl}` : null;
+  const thumbUrl = resolveImageUrl(user.faydaImageUrl);
 
   return (
-    <div className={`px-6 py-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 transition-colors hover:bg-slate-50/60 group ${
+    <div className={`px-6 py-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 transition-colors hover:bg-slate-50/70 group ${
       isProcessing ? 'opacity-60 pointer-events-none' : ''
     }`}>
+      {/* Thumbnail */}
       <button
         onClick={onViewID}
-        title={hasImage ? 'View ID document' : 'No document uploaded'}
-        className="relative shrink-0 w-14 h-14 rounded-[1.1rem] overflow-hidden border-2 border-slate-100 bg-slate-100 flex items-center justify-center hover:border-blue-400 hover:shadow-lg hover:shadow-blue-50 transition-all group/thumb"
+        title={hasImage ? 'Click to inspect document' : 'No document uploaded'}
+        className="relative shrink-0 w-14 h-14 rounded-[1.1rem] overflow-hidden border-2 border-slate-200 bg-slate-100 flex items-center justify-center hover:border-[#005C53] hover:shadow-md transition-all group/thumb"
       >
         {hasImage ? (
           <>
             <img
               src={thumbUrl}
-              alt={`${user.fullName} ID`}
+              alt={`${displayName} ID`}
               className="w-full h-full object-cover"
               onError={(e) => {
                 e.target.style.display = 'none';
@@ -470,31 +498,32 @@ function KYCRow({ user, activeTab, processing, onApprove, onReject, onViewID }) 
             <div className="hidden w-full h-full items-center justify-center absolute inset-0 bg-slate-100">
               <ImageOff size={16} className="text-slate-300" />
             </div>
-            <div className="absolute inset-0 bg-blue-600/0 group-hover/thumb:bg-blue-600/60 flex items-center justify-center transition-all">
+            <div className="absolute inset-0 bg-[#005C53]/0 group-hover/thumb:bg-[#005C53]/60 flex items-center justify-center transition-all">
               <ZoomIn size={18} className="text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity" />
             </div>
           </>
         ) : (
           <div className="flex flex-col items-center gap-1">
             <ImageOff size={16} className="text-slate-300" />
-            <span className="text-[8px] font-bold text-slate-300 uppercase tracking-wide">No ID</span>
+            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wide">No ID</span>
           </div>
         )}
       </button>
 
+      {/* User Information */}
       <div className="flex-1 min-w-0">
         <div className="flex flex-wrap items-center gap-3 mb-1.5">
-          <span className="font-black text-slate-800">{user.fullName}</span>
+          <span className="font-black text-slate-900 text-base">{displayName}</span>
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${meta.style}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
             {meta.label}
           </span>
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-1">
-          <span className="text-xs font-bold text-slate-400">{user.phoneNumber}</span>
+          <span className="text-xs font-bold text-slate-600">{user.phoneNumber}</span>
           {user.email && <span className="text-xs font-medium text-slate-400">{user.email}</span>}
-          <span className="text-xs font-bold text-slate-400 uppercase">{user.role}</span>
-          <span className="text-xs text-slate-300 font-medium">
+          <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 uppercase tracking-wider">{user.role}</span>
+          <span className="text-xs text-slate-400 font-medium">
             {user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'}
           </span>
         </div>
@@ -506,21 +535,23 @@ function KYCRow({ user, activeTab, processing, onApprove, onReject, onViewID }) 
         )}
       </div>
 
-      <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 px-4 py-2.5 rounded-[1.2rem] shrink-0">
-        <CreditCard size={15} className="text-slate-400" />
+      {/* Fayda ID Card */}
+      <div className="flex items-center gap-2.5 bg-teal-50/50 border border-teal-100/60 px-4 py-2.5 rounded-[1.2rem] shrink-0">
+        <CreditCard size={16} className="text-[#005C53]" />
         <div>
           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Fayda ID</p>
-          <p className="font-black text-slate-700 font-mono text-sm">{user.faydaId || 'N/A'}</p>
+          <p className="font-black text-slate-800 font-mono text-sm">{user.faydaId || 'N/A'}</p>
         </div>
       </div>
 
+      {/* Action Buttons */}
       <div className="flex items-center gap-2 shrink-0">
         <button
           onClick={onViewID}
-          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-[1.1rem] font-black text-xs transition-all border ${
+          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-[1.1rem] font-bold text-xs transition-all border ${
             hasImage
-              ? 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-600 hover:text-white hover:border-blue-600 hover:shadow-lg hover:shadow-blue-100'
-              : 'bg-slate-50 text-slate-400 border-slate-100 cursor-default'
+              ? 'bg-teal-50 text-[#005C53] border-teal-200 hover:bg-[#005C53] hover:text-white hover:border-[#005C53] shadow-sm'
+              : 'bg-slate-50 text-slate-400 border-slate-200 cursor-default'
           }`}
           title={hasImage ? 'View uploaded ID document' : 'No document uploaded'}
         >
@@ -533,7 +564,7 @@ function KYCRow({ user, activeTab, processing, onApprove, onReject, onViewID }) 
             <button
               onClick={onApprove}
               disabled={isProcessing}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[1.1rem] font-black text-xs shadow-lg shadow-emerald-100 transition-all disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[1.1rem] font-bold text-xs shadow-md shadow-emerald-100 transition-all disabled:opacity-50 active:scale-95"
             >
               {isProcessing ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
               Approve
@@ -541,7 +572,7 @@ function KYCRow({ user, activeTab, processing, onApprove, onReject, onViewID }) 
             <button
               onClick={onReject}
               disabled={isProcessing}
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 hover:bg-red-500 text-red-500 hover:text-white rounded-[1.1rem] font-black text-xs transition-all disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 hover:bg-red-500 text-red-500 hover:text-white rounded-[1.1rem] font-bold text-xs transition-all disabled:opacity-50 active:scale-95"
             >
               <XCircle size={13} />
               Reject

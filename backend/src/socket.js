@@ -10,27 +10,27 @@ const activeDraws = {};
  * Initializes WebSocket server instance and connection listeners.
  */
 function initSocket(server) {
-    io = new Server(server, { 
-        cors: { 
-            origin: '*', 
-            methods: ['GET', 'POST'] 
-        } 
+    io = new Server(server, {
+        cors: {
+            origin: '*',
+            methods: ['GET', 'POST']
+        }
     });
 
     io.on('connection', (socket) => {
         // Room join event for real-time Equb draw viewing
         socket.on('joinGroupRoom', ({ groupId, userId }) => {
             socket.join(`group:${groupId}`);
-            
+
             // Sync client state if draw is currently active
             if (activeDraws[groupId]) {
                 const draw = activeDraws[groupId];
                 const elapsedMs = Date.now() - draw.serverStartTime;
                 if (elapsedMs < draw.drawDurationMs) {
-                    socket.emit('drawStarted', { 
-                        ...draw, 
-                        isSync: true, 
-                        elapsedMs 
+                    socket.emit('drawStarted', {
+                        ...draw,
+                        isSync: true,
+                        elapsedMs
                     });
                 }
             }
@@ -45,64 +45,90 @@ function initSocket(server) {
 
 /**
  * Triggers a live lottery draw for a specific Equb group.
- * Validates member payment status for current cycle & round before proceeding.
+ *
+ * Key change from original:
+ *   - Unpaid members are NO LONGER a hard block.
+ *   - Only members with an APPROVED payment for the current round/cycle
+ *     AND who have not yet won this cycle are eligible participants.
+ *   - If at least one eligible paid member exists, the draw proceeds.
+ *   - Only throws if ZERO members have paid (nothing to draw).
  */
 async function triggerDraw(groupId) {
     const group = await prisma.equbGroup.findUnique({
         where: { id: groupId },
-        include: { 
+        include: {
             plan: true,
-            memberships: { 
-                where: { status: 'APPROVED' }, 
-                include: { user: true } 
-            } 
+            memberships: {
+                where: { status: 'APPROVED' },
+                include: { user: true },
+            },
         },
     });
 
     if (!group) throw new Error('Equb group not found.');
 
-    // 1. Payment Verification Check (Members must have approved payment for current round & cycle)
-    const unpaidMembers = await prisma.equbMembership.findMany({
-        where: {
-            groupId: groupId,
-            status: 'APPROVED',
-            payments: {
-                none: {
-                    roundNumber: group.currentRound,
-                    cycleNumber: group.cycleNumber,
-                    status: 'APPROVED'
-                }
-            }
-        },
-        include: { user: true }
-    });
-
-    if (unpaidMembers.length > 0) {
-        const names = unpaidMembers.map(m => m.user.fullName).join(", ");
-        throw new Error(
-            `Cannot start draw. The following members have pending or unapproved payments for Round ${group.currentRound} (Cycle ${group.cycleNumber}): ${names}`
-        );
-    }
-
-    // 2. Filter out past winners in the current cycle
+    // ── 1. Find who has already won this cycle ────────────────────────────
     const previousWinners = await prisma.drawResult.findMany({
         where: { groupId, cycleNumber: group.cycleNumber },
         select: { winnerId: true },
     });
-
     const wonUserIds = new Set(previousWinners.map(d => d.winnerId));
-    const eligible = group.memberships.filter(m => !wonUserIds.has(m.userId));
 
-    if (eligible.length === 0) {
-        throw new Error('All members in this group have already won in the current cycle.');
+    // ── 2. Find which memberships have an APPROVED payment this round ─────
+    const paidMemberships = await prisma.equbMembership.findMany({
+        where: {
+            groupId,
+            status: 'APPROVED',
+            payments: {
+                some: {
+                    roundNumber: group.currentRound,
+                    cycleNumber: group.cycleNumber,
+                    status: 'APPROVED',
+                },
+            },
+        },
+        select: { userId: true },
+    });
+    const paidUserIds = new Set(paidMemberships.map(m => m.userId));
+
+    // ── 3. Eligible = paid this round AND hasn't won this cycle ───────────
+    const eligible = group.memberships.filter(
+        m => paidUserIds.has(m.userId) && !wonUserIds.has(m.userId)
+    );
+
+    // ── 4. Collect unpaid members for informational logging ───────────────
+    const unpaidMembers = group.memberships.filter(m => !paidUserIds.has(m.userId));
+    if (unpaidMembers.length > 0) {
+        const names = unpaidMembers.map(m => m.user.fullName).join(', ');
+        console.log(
+            `[Draw] INFO | group=${group.name} | round=${group.currentRound} | ` +
+            `${unpaidMembers.length} member(s) excluded from draw (unpaid): ${names}`
+        );
     }
 
-    // 3. Draw winner selection logic
+    if (eligible.length === 0) {
+        throw new Error(
+            'No eligible members for this draw. ' +
+            'None of the approved members have a verified payment for ' +
+            `Round ${group.currentRound} (Cycle ${group.cycleNumber}).`
+        );
+    }
+
+    // ── 5. Select winner randomly from paid-and-not-yet-won members ───────
+    // Pot = ONLY paid members × plan amount — never inflated by unpaid members
+    const paidMemberCount = paidUserIds.size;
+    const actualPot = parseFloat((paidMemberCount * parseFloat(group.plan.amount)).toFixed(2));
+
+    console.log(
+        `[Draw] Pot | group=${group.name} | round=${group.currentRound} ` +
+        `| paidMembers=${paidMemberCount} | planAmount=${group.plan.amount} | actualPot=${actualPot} ETB`
+    );
+
     const winnerMembership = eligible[Math.floor(Math.random() * eligible.length)];
     const winnerUser = winnerMembership.user;
     const isLastWinner = eligible.length === 1;
 
-    const DRAW_DURATION_MS = 120000; // 2 Minutes live draw execution window
+    const DRAW_DURATION_MS = 120000; // 2-minute live spin window
     const serverStartTime = Date.now();
 
     const drawData = {
@@ -113,15 +139,18 @@ async function triggerDraw(groupId) {
         roundNumber: group.currentRound,
         cycleNumber: group.cycleNumber,
         drawDurationMs: DRAW_DURATION_MS,
-        potAmount: (parseFloat(group.plan.amount) * group.memberships.length).toFixed(2),
+        // Pot = paid members × plan amount (accurate, never includes unpaid contributions)
+        potAmount: actualPot.toString(),
         serverStartTime,
-        isLastWinner
+        isLastWinner,
+        // Carry unpaid info so clients can show a non-blocking warning banner
+        unpaidMembers: unpaidMembers.map(m => ({ userId: m.userId, fullName: m.user.fullName })),
     };
 
     activeDraws[groupId] = drawData;
     io.to(`group:${groupId}`).emit('drawStarted', drawData);
 
-    // 4. Finalize draw result and persist to database after countdown completes
+    // ── 6. Persist result after the countdown ────────────────────────────
     setTimeout(async () => {
         try {
             delete activeDraws[groupId];
@@ -129,40 +158,41 @@ async function triggerDraw(groupId) {
             const result = await prisma.$transaction([
                 prisma.drawResult.create({
                     data: {
-                        groupId: groupId,
+                        groupId,
                         winnerId: winnerUser.id,
                         roundNumber: group.currentRound,
                         cycleNumber: group.cycleNumber,
                         potAmount: drawData.potAmount,
-                        guarantorProvided: isLastWinner // Last winner auto-waives guarantor requirement
-                    }
+                        // Last winner auto-waives guarantor requirement
+                        guarantorProvided: isLastWinner,
+                    },
                 }),
                 prisma.equbMembership.update({
                     where: { id: winnerMembership.id },
-                    data: { hasWon: true }
+                    data: { hasWon: true },
                 }),
                 prisma.equbGroup.update({
                     where: { id: groupId },
-                    data: { currentRound: group.currentRound + 1 }
-                })
+                    data: { currentRound: group.currentRound + 1 },
+                }),
             ]);
 
-            io.to(`group:${groupId}`).emit('winnerAnnounced', { 
-                ...drawData, 
-                drawResultId: result[0].id 
+            io.to(`group:${groupId}`).emit('winnerAnnounced', {
+                ...drawData,
+                drawResultId: result[0].id,
             });
 
-        } catch (dbErr) { 
-            console.error('Error recording draw winner:', dbErr); 
-            delete activeDraws[groupId]; 
+        } catch (dbErr) {
+            console.error('[Draw] Error recording winner:', dbErr);
+            delete activeDraws[groupId];
         }
     }, DRAW_DURATION_MS + 2000);
 
     return drawData;
 }
 
-module.exports = { 
-    initSocket, 
-    triggerDraw, 
-    getIO: () => io 
+module.exports = {
+    initSocket,
+    triggerDraw,
+    getIO: () => io
 };

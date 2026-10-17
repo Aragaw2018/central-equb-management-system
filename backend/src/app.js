@@ -12,6 +12,10 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const drawRoutes = require('./routes/drawRoutes');
 const guarantorRoutes = require('./routes/guarantorRoutes');
 const reportRoutes = require('./routes/reportRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+
+// ── Maintenance-mode kill-switch middleware ───────────────────────────────────
+const checkMaintenance = require('./middlewares/checkMaintenance');
 
 const app = express();
 
@@ -29,11 +33,15 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // ── 3. Application API Routes ────────────────────────────────────────────────
 
-// Authentication, user management, and password reset
+// Authentication, user management, and password reset (ALWAYS accessible)
 app.use('/api/users', userRoutes);
 
-// System administration and platform approvals
+// System administration (ALWAYS accessible — admins must remain able to disable maintenance)
 app.use('/api/admin', adminRoutes);
+
+// ── Maintenance-mode kill-switch — gates all non-admin routes ─────────────────
+// Runs AFTER /api/users and /api/admin are registered so those bypass it.
+app.use(checkMaintenance);
 
 // Group management and cycle controls for organizers
 app.use('/api/organizer', organizerRoutes);
@@ -52,6 +60,9 @@ app.use('/api/guarantor', guarantorRoutes);
 
 // Financial analytics, member balance statements, and reporting
 app.use('/api/reports', reportRoutes);
+
+// In-app notification feed for members and organizers
+app.use('/api/notifications', notificationRoutes);
 
 // ── 4. Global Error & 440 Handler ─────────────────────────────────────────────
 app.use((req, res) => {

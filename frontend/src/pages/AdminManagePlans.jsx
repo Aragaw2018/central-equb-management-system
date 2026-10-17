@@ -13,6 +13,7 @@ import {
   Loader2,
   X,
   Save,
+  ShieldAlert,
 } from 'lucide-react';
 
 const CATEGORY_META = {
@@ -24,10 +25,20 @@ const CATEGORY_META = {
 const EMPTY_FORM = {
   category: 'DAILY',
   amount: '',
-  penalty: '',
+  penalty: '',       // legacy — kept for backward-compat display
+  tier1Penalty: '',
+  tier2Penalty: '',
+  tier3Penalty: '',
   maxMembers: '',
   description: '',
 };
+
+// ─── Tier badge styling ───────────────────────────────────────────────────────
+const TIER_META = [
+  { key: 'tier1Penalty', label: 'Tier 1',  badge: 'bg-yellow-50  text-yellow-700  border-yellow-200', dot: 'bg-yellow-400' },
+  { key: 'tier2Penalty', label: 'Tier 2', badge: 'bg-orange-50  text-orange-700  border-orange-200', dot: 'bg-orange-400' },
+  { key: 'tier3Penalty', label: 'Tier 3',  badge: 'bg-red-50     text-red-700     border-red-200', dot: 'bg-red-500' },
+];
 
 function AdminManagePlans() {
   const [form, setForm] = useState(EMPTY_FORM);
@@ -59,24 +70,17 @@ function AdminManagePlans() {
     }
   }, [showToast]);
 
-  useEffect(() => {
-    fetchPlans();
-  }, [fetchPlans]);
+  useEffect(() => { fetchPlans(); }, [fetchPlans]);
 
-  // Lock scroll and support Escape for Delete Modal
+  // Escape key + scroll-lock for delete modal
   useEffect(() => {
     if (!deleteTarget) return;
-
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && !deleting) setDeleteTarget(null);
-    };
-
+    const onKey = (e) => { if (e.key === 'Escape' && !deleting) setDeleteTarget(null); };
     document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', handleKeyDown);
-
+    window.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = 'unset';
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keydown', onKey);
     };
   }, [deleteTarget, deleting]);
 
@@ -91,6 +95,9 @@ function AdminManagePlans() {
       category: plan.category,
       amount: String(plan.amount),
       penalty: String(plan.penalty),
+      tier1Penalty: String(plan.tier1Penalty ?? ''),
+      tier2Penalty: String(plan.tier2Penalty ?? ''),
+      tier3Penalty: String(plan.tier3Penalty ?? ''),
       maxMembers: String(plan.maxMembers),
       description: plan.description || '',
     });
@@ -106,10 +113,23 @@ function AdminManagePlans() {
     e.preventDefault();
     setSubmitting(true);
 
+    // Client-side tier ordering validation
+    const t1 = Number(form.tier1Penalty) || 0;
+    const t2 = Number(form.tier2Penalty) || 0;
+    const t3 = Number(form.tier3Penalty) || 0;
+    if (!(t1 <= t2 && t2 <= t3)) {
+      showToast('error', 'Penalty tiers must be in ascending order: Tier 1 ≤ Tier 2 ≤ Tier 3.');
+      setSubmitting(false);
+      return;
+    }
+
     const payload = {
       category: form.category,
       amount: Number(form.amount),
-      penalty: Number(form.penalty),
+      penalty: t3,                  // legacy field synced to tier3
+      tier1Penalty: t1,
+      tier2Penalty: t2,
+      tier3Penalty: t3,
       maxMembers: Number(form.maxMembers),
       description: form.description.trim(),
     };
@@ -149,21 +169,26 @@ function AdminManagePlans() {
       }
       showToast('success', 'Plan deleted.');
     } catch (err) {
-      const msg = err.response?.data?.error || 'Failed to delete plan.';
-      showToast('error', msg);
+      showToast('error', err.response?.data?.error || 'Failed to delete plan.');
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
     }
   };
 
+  // ── Shared input class ──────────────────────────────────────────────────────
+  const inputCls =
+    'w-full px-4 py-3.5 bg-slate-50 rounded-[1.2rem] border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-700 transition-colors text-sm';
+  const labelCls =
+    'block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5';
+
   return (
     <DashboardLayout role="ADMIN">
+      {/* Toast */}
       {toast && (
         <div
-          className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-6 py-4 rounded-[1.5rem] shadow-2xl font-bold text-sm transition-all duration-300 ${
-            toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
-          }`}
+          className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-6 py-4 rounded-[1.5rem] shadow-2xl font-bold text-sm transition-all duration-300 ${toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
+            }`}
           role="alert"
         >
           {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
@@ -171,12 +196,11 @@ function AdminManagePlans() {
         </div>
       )}
 
+      {/* Delete Confirm Modal */}
       {deleteTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !deleting) setDeleteTarget(null);
-          }}
+          onClick={(e) => { if (e.target === e.currentTarget && !deleting) setDeleteTarget(null); }}
           role="dialog"
           aria-modal="true"
         >
@@ -216,6 +240,7 @@ function AdminManagePlans() {
         </div>
       )}
 
+      {/* Page Header */}
       <div className="mb-10">
         <h1 className="text-3xl font-black text-slate-800 tracking-tight">Equb Plans</h1>
         <p className="text-slate-400 font-bold uppercase text-xs tracking-widest mt-1">
@@ -224,7 +249,13 @@ function AdminManagePlans() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-10 items-start">
-        <div ref={formRef} className="xl:col-span-2 bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden">
+
+        {/* ── Form Panel ───────────────────────────────────────────────────── */}
+        <div
+          ref={formRef}
+          className="xl:col-span-2 bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden"
+        >
+          {/* Form header */}
           <div className={`px-8 pt-8 pb-6 border-b border-slate-50 flex items-center justify-between gap-3 ${editingId ? 'bg-amber-50/60' : ''}`}>
             <div className="flex items-center gap-3">
               <div className={`w-10 h-10 rounded-[1rem] flex items-center justify-center ${editingId ? 'bg-amber-100 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
@@ -235,9 +266,7 @@ function AdminManagePlans() {
                   {editingId ? 'Edit Plan' : 'New Plan'}
                 </h2>
                 {editingId && (
-                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">
-                    Editing mode
-                  </p>
+                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Editing mode</p>
                 )}
               </div>
             </div>
@@ -254,16 +283,16 @@ function AdminManagePlans() {
           </div>
 
           <form onSubmit={handleSubmit} className="p-8 space-y-5">
+
+            {/* Category */}
             <div>
-              <label htmlFor="category" className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
-                Category
-              </label>
+              <label htmlFor="category" className={labelCls}>Category</label>
               <select
                 id="category"
                 name="category"
                 value={form.category}
                 onChange={handleChange}
-                className="w-full px-4 py-4 bg-slate-50 rounded-[1.5rem] border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-700 transition-colors"
+                className={inputCls}
               >
                 <option value="DAILY">Daily</option>
                 <option value="WEEKLY">Weekly</option>
@@ -271,81 +300,86 @@ function AdminManagePlans() {
               </select>
             </div>
 
+            {/* Amount + Max Members */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="amount" className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
-                  Amount (ETB)
-                </label>
+                <label htmlFor="amount" className={labelCls}>Amount (ETB)</label>
                 <input
-                  id="amount"
-                  type="number"
-                  name="amount"
-                  value={form.amount}
-                  onChange={handleChange}
-                  placeholder="e.g. 500"
-                  min="1"
-                  required
-                  className="w-full px-4 py-4 bg-slate-50 rounded-[1.5rem] border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-700 transition-colors"
+                  id="amount" type="number" name="amount"
+                  value={form.amount} onChange={handleChange}
+                  placeholder="e.g. 500" min="1" required
+                  className={inputCls}
                 />
               </div>
               <div>
-                <label htmlFor="penalty" className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
-                  Penalty (ETB)
-                </label>
+                <label htmlFor="maxMembers" className={labelCls}>Max Members</label>
                 <input
-                  id="penalty"
-                  type="number"
-                  name="penalty"
-                  value={form.penalty}
-                  onChange={handleChange}
-                  placeholder="e.g. 50"
-                  min="0"
-                  required
-                  className="w-full px-4 py-4 bg-slate-50 rounded-[1.5rem] border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-700 transition-colors"
+                  id="maxMembers" type="number" name="maxMembers"
+                  value={form.maxMembers} onChange={handleChange}
+                  placeholder="e.g. 20" min="1" required
+                  className={inputCls}
                 />
               </div>
             </div>
 
-            <div>
-              <label htmlFor="maxMembers" className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
-                Max Members
-              </label>
-              <input
-                id="maxMembers"
-                type="number"
-                name="maxMembers"
-                value={form.maxMembers}
-                onChange={handleChange}
-                placeholder="e.g. 20"
-                min="1"
-                required
-                className="w-full px-4 py-4 bg-slate-50 rounded-[1.5rem] border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-700 transition-colors"
-              />
+            {/* ── 3-Tier Penalty Section ──────────────────────────────────── */}
+            <div className="bg-slate-50 rounded-[1.5rem] p-5 space-y-4 border border-slate-100">
+              <div className="flex items-center gap-2 mb-1">
+                <ShieldAlert size={15} className="text-orange-400" />
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  Penalty Tiers (ETB)
+                </span>
+              </div>
+
+              {TIER_META.map((t) => (
+                <div key={t.key}>
+                  <label htmlFor={t.key} className="flex items-center gap-2 mb-1.5">
+                    <span className={`inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border ${t.badge}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${t.dot}`} />
+                      {t.label}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-400">{t.amharic}</span>
+                  </label>
+                  <input
+                    id={t.key}
+                    type="number"
+                    name={t.key}
+                    value={form[t.key]}
+                    onChange={handleChange}
+                    placeholder="0"
+                    min="0"
+                    step="0.01"
+                    className={inputCls}
+                  />
+                </div>
+              ))}
+
+              <p className="text-[10px] text-slate-400 font-medium pt-1">
+                Tiers must be in ascending order: Tier 1 ≤ Tier 2 ≤ Tier 3
+              </p>
             </div>
 
+            {/* Description */}
             <div>
-              <label htmlFor="description" className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
+              <label htmlFor="description" className={labelCls}>
                 Description <span className="normal-case font-medium text-slate-400">(optional)</span>
               </label>
               <textarea
-                id="description"
-                name="description"
-                value={form.description}
-                onChange={handleChange}
-                rows={3}
-                placeholder="Brief description of this plan..."
-                className="w-full px-4 py-4 bg-slate-50 rounded-[1.5rem] border-2 border-transparent focus:border-blue-500 outline-none font-bold text-slate-700 resize-none transition-colors"
+                id="description" name="description"
+                value={form.description} onChange={handleChange}
+                rows={3} placeholder="Brief description of this plan..."
+                className={`${inputCls} resize-none`}
               />
             </div>
 
+            {/* Submit */}
             <button
               type="submit"
               disabled={submitting}
-              className={`w-full flex items-center justify-center gap-3 text-white py-4 rounded-[1.5rem] font-black shadow-lg transition-all disabled:opacity-60 ${
-                editingId
+              className={`w-full flex items-center justify-center gap-3 text-white py-4 rounded-[1.5rem] font-black shadow-lg transition-all disabled:opacity-60 ${editingId
                   ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-100'
                   : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
-              }`}
+                }`}
             >
               {submitting ? (
                 <><Loader2 size={18} className="animate-spin" /> {editingId ? 'Saving…' : 'Creating…'}</>
@@ -358,6 +392,7 @@ function AdminManagePlans() {
           </form>
         </div>
 
+        {/* ── Plan Cards ───────────────────────────────────────────────────── */}
         <div className="xl:col-span-3">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-black text-slate-800">
@@ -396,18 +431,27 @@ function AdminManagePlans() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PlanCard
+// ─────────────────────────────────────────────────────────────────────────────
 function PlanCard({ plan, isEditing, onEdit, onDelete }) {
   const meta = CATEGORY_META[plan.category] || CATEGORY_META.MONTHLY;
 
+  const t1 = Number(plan.tier1Penalty ?? 0);
+  const t2 = Number(plan.tier2Penalty ?? 0);
+  const t3 = Number(plan.tier3Penalty ?? 0);
+  const hasTiers = t1 > 0 || t2 > 0 || t3 > 0;
+
   return (
     <div
-      className={`bg-white rounded-[2rem] border-2 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group ${
-        isEditing ? 'border-amber-300 shadow-amber-100' : 'border-slate-100'
-      }`}
+      className={`bg-white rounded-[2rem] border-2 shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden group ${isEditing ? 'border-amber-300 shadow-amber-100' : 'border-slate-100'
+        }`}
     >
+      {/* Category colour bar */}
       <div className={`h-1.5 w-full ${meta.dot}`} />
 
       <div className="p-7">
+        {/* Top row: badge + action buttons */}
         <div className="flex items-start justify-between mb-5">
           <span className={`inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full ${meta.color}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
@@ -419,11 +463,10 @@ function PlanCard({ plan, isEditing, onEdit, onDelete }) {
               type="button"
               onClick={onEdit}
               title="Edit plan"
-              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${
-                isEditing
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${isEditing
                   ? 'bg-amber-100 text-amber-600'
                   : 'bg-slate-50 text-slate-400 hover:bg-amber-50 hover:text-amber-500'
-              }`}
+                }`}
             >
               <Pencil size={14} />
             </button>
@@ -438,17 +481,52 @@ function PlanCard({ plan, isEditing, onEdit, onDelete }) {
           </div>
         </div>
 
+        {/* Amount */}
         <p className="text-3xl font-black text-slate-800 tracking-tight mb-1">
           {Number(plan.amount).toLocaleString()}
           <span className="text-base font-bold text-slate-400 ml-1">ETB</span>
         </p>
-
         <p className="text-xs text-slate-300 font-bold mb-4">
           Created {new Date(plan.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
         </p>
 
-        <div className="flex items-center gap-5 pt-4 border-t border-slate-50">
-          <div className="flex items-center gap-2">
+        {/* Max Members row */}
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-7 h-7 bg-blue-50 rounded-xl flex items-center justify-center">
+            <Users size={13} className="text-blue-400" />
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Max Members</p>
+            <p className="text-sm font-black text-slate-700">{plan.maxMembers}</p>
+          </div>
+        </div>
+
+        {/* ── Penalty Tiers ───────────────────────────────────────────────── */}
+        {hasTiers ? (
+          <div className="pt-4 border-t border-slate-50 space-y-2">
+            <div className="flex items-center gap-1.5 mb-2">
+              <ShieldAlert size={12} className="text-orange-400" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Penalty Tiers</span>
+            </div>
+            {TIER_META.map((tm) => {
+              const val = Number(plan[tm.key] ?? 0);
+              return (
+                <div key={tm.key} className={`flex items-center justify-between px-3 py-2 rounded-xl border ${tm.badge}`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${tm.dot}`} />
+                    <span className="text-[10px] font-black uppercase tracking-wider">{tm.label}</span>
+                    <span className="text-[10px] font-medium opacity-70">{tm.amharic}</span>
+                  </div>
+                  <span className="text-xs font-black">
+                    {val > 0 ? `${val.toLocaleString()} ETB` : <span className="opacity-40 font-bold">—</span>}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          /* Legacy flat penalty fallback */
+          <div className="flex items-center gap-2 pt-4 border-t border-slate-50">
             <div className="w-7 h-7 bg-red-50 rounded-xl flex items-center justify-center">
               <AlertCircle size={13} className="text-red-400" />
             </div>
@@ -457,18 +535,9 @@ function PlanCard({ plan, isEditing, onEdit, onDelete }) {
               <p className="text-sm font-black text-slate-700">{Number(plan.penalty).toLocaleString()} ETB</p>
             </div>
           </div>
+        )}
 
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-blue-50 rounded-xl flex items-center justify-center">
-              <Users size={13} className="text-blue-400" />
-            </div>
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Max Members</p>
-              <p className="text-sm font-black text-slate-700">{plan.maxMembers}</p>
-            </div>
-          </div>
-        </div>
-
+        {/* Description */}
         {plan.description && (
           <div className="flex items-start gap-2 mt-4 pt-4 border-t border-slate-50">
             <FileText size={13} className="text-slate-300 mt-0.5 shrink-0" />

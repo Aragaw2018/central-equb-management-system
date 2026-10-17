@@ -31,10 +31,22 @@ router.post('/reset-password', userController.finalizeReset);
  * 3. PROFILE & ACCOUNT MANAGEMENT
  */
 
+// Get current user profile (used by Profile page to pre-fill fresh data on mount)
+router.get('/profile/:userId', userController.getProfile);
+
 // Update member/organizer profile & bank information
 router.patch('/profile/:userId', userController.updateProfile);
 
 // Authenticated user password update
 router.patch('/change-password/:userId', userController.changePassword);
+
+// Instant self-service Fayda eKYC verification (legacy single-step)
+router.post('/auto-verify-fayda', userController.autoVerifyFayda);
+
+// 2-step Fayda eKYC: Step 1 — submit FIN + optional ID photo → receive OTP
+router.post('/send-fayda-otp', upload.single('faydaImage'), userController.sendFaydaOTP);
+
+// 2-step Fayda eKYC: Step 2 — submit OTP → mark VERIFIED
+router.post('/verify-fayda-otp', userController.verifyFaydaOTP);
 
 module.exports = router;

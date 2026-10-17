@@ -41,27 +41,90 @@ const getOrganizerAnalytics = async (req, res) => {
     const { organizerId } = req.params;
 
     try {
-        // Total number of groups under the organizer
-        const totalGroups = await prisma.equbGroup.count({ where: { organizerId } });
+        const [
+            totalGroups,
+            totalCollected,
+            pendingPayments,
+            totalPenaltyEarnings,
+            recentPenaltyActivities,
+        ] = await Promise.all([
+            // Total number of groups under the organizer
+            prisma.equbGroup.count({ where: { organizerId } }),
 
-        // Total collected amount
-        const totalCollected = await prisma.groupPayment.aggregate({
-            where: { group: { organizerId }, status: 'APPROVED' },
-            _sum: { amount: true }
-        });
+            // Total collected amount (all approved payments)
+            prisma.groupPayment.aggregate({
+                where: { group: { organizerId }, status: 'APPROVED' },
+                _sum: { amount: true },
+            }),
 
-        // Pending (unapproved) payments
-        const pendingPayments = await prisma.groupPayment.count({
-            where: { group: { organizerId }, status: 'PENDING' }
-        });
+            // Pending (unapproved) payments
+            prisma.groupPayment.count({
+                where: { group: { organizerId }, status: 'PENDING' },
+            }),
+
+            // Sum of all penalty amounts on approved payments
+            prisma.groupPayment.aggregate({
+                where: {
+                    group: { organizerId },
+                    status: 'APPROVED',
+                    penaltyAmount: { gt: 0 },
+                },
+                _sum: { penaltyAmount: true },
+            }),
+
+            // Latest 10 payments that included a penalty — for the notification cards
+            prisma.groupPayment.findMany({
+                where: {
+                    group: { organizerId },
+                    status: 'APPROVED',
+                    penaltyAmount: { gt: 0 },
+                },
+                orderBy: { reviewedAt: 'desc' },
+                take: 10,
+                select: {
+                    id: true,
+                    amount: true,
+                    penaltyAmount: true,
+                    penaltyTier: true,
+                    roundNumber: true,
+                    cycleNumber: true,
+                    reviewedAt: true,
+                    submittedAt: true,
+                    transactionId: true,
+                    membership: {
+                        select: {
+                            user: { select: { id: true, fullName: true, phoneNumber: true } },
+                        },
+                    },
+                    group: { select: { id: true, name: true } },
+                },
+            }),
+        ]);
 
         res.json({
             totalGroups,
-            totalCollected: totalCollected._sum.amount || 0,
-            pendingPayments
+            totalCollected: totalCollected._sum.amount ?? 0,
+            pendingPayments,
+            totalPenaltyEarnings: totalPenaltyEarnings._sum.penaltyAmount ?? 0,
+            recentPenaltyActivities: recentPenaltyActivities.map(p => ({
+                id: p.id,
+                transactionId: p.transactionId,
+                amount: Number(p.amount),
+                penaltyAmount: Number(p.penaltyAmount),
+                penaltyTier: p.penaltyTier,
+                roundNumber: p.roundNumber,
+                cycleNumber: p.cycleNumber,
+                reviewedAt: p.reviewedAt,
+                submittedAt: p.submittedAt,
+                memberName: p.membership?.user?.fullName ?? 'Unknown',
+                memberPhone: p.membership?.user?.phoneNumber ?? '',
+                groupId: p.group?.id ?? '',
+                groupName: p.group?.name ?? '',
+            })),
         });
     } catch (error) {
-        res.status(500).json({ error: "Failed to fetch analytics" });
+        console.error('getOrganizerAnalytics error:', error.message);
+        res.status(500).json({ error: 'Failed to fetch analytics' });
     }
 };
 

@@ -28,10 +28,13 @@ const approveOrganizer = async (req, res) => {
 
 // ── 3. Create a new Equb Plan ─────────────────────────────────────────────────
 const createPlan = async (req, res) => {
-    const { category, amount, penalty, maxMembers, description } = req.body;
+    const {
+        category, amount, penalty, maxMembers, description,
+        tier1Penalty, tier2Penalty, tier3Penalty,
+    } = req.body;
 
-    if (!category || !amount || !penalty || !maxMembers) {
-        return res.status(400).json({ error: "category, amount, penalty, and maxMembers are required." });
+    if (!category || !amount || maxMembers === undefined) {
+        return res.status(400).json({ error: "category, amount, and maxMembers are required." });
     }
 
     const validCategories = ['DAILY', 'WEEKLY', 'MONTHLY'];
@@ -39,8 +42,19 @@ const createPlan = async (req, res) => {
         return res.status(400).json({ error: "category must be DAILY, WEEKLY, or MONTHLY." });
     }
 
-    if (Number(amount) <= 0 || Number(penalty) < 0 || Number(maxMembers) <= 0) {
-        return res.status(400).json({ error: "amount and maxMembers must be positive; penalty must be non-negative." });
+    if (Number(amount) <= 0 || Number(maxMembers) <= 0) {
+        return res.status(400).json({ error: "amount and maxMembers must be positive." });
+    }
+
+    const t1 = parseFloat(tier1Penalty ?? 0);
+    const t2 = parseFloat(tier2Penalty ?? 0);
+    const t3 = parseFloat(tier3Penalty ?? 0);
+
+    if (t1 < 0 || t2 < 0 || t3 < 0) {
+        return res.status(400).json({ error: "Penalty tiers must be non-negative." });
+    }
+    if (!(t1 <= t2 && t2 <= t3)) {
+        return res.status(400).json({ error: "Penalty tiers must be in ascending order: Tier 1 ≤ Tier 2 ≤ Tier 3." });
     }
 
     try {
@@ -48,7 +62,11 @@ const createPlan = async (req, res) => {
             data: {
                 category,
                 amount: parseFloat(amount),
-                penalty: parseFloat(penalty),
+                // Keep legacy penalty as the max (tier3) for backward compat reads
+                penalty: t3 > 0 ? t3 : parseFloat(penalty ?? 0),
+                tier1Penalty: t1,
+                tier2Penalty: t2,
+                tier3Penalty: t3,
                 maxMembers: parseInt(maxMembers, 10),
                 description: description || null,
             }
@@ -74,15 +92,30 @@ const getAllPlans = async (req, res) => {
 // ── 5. Update an Equb Plan ────────────────────────────────────────────────────
 const updatePlan = async (req, res) => {
     const { id } = req.params;
-    const { category, amount, penalty, maxMembers, description } = req.body;
+    const {
+        category, amount, penalty, maxMembers, description,
+        tier1Penalty, tier2Penalty, tier3Penalty,
+    } = req.body;
 
     const validCategories = ['DAILY', 'WEEKLY', 'MONTHLY'];
     if (category && !validCategories.includes(category)) {
         return res.status(400).json({ error: "category must be DAILY, WEEKLY, or MONTHLY." });
     }
     if (amount !== undefined && Number(amount) <= 0) return res.status(400).json({ error: "amount must be positive." });
-    if (penalty !== undefined && Number(penalty) < 0) return res.status(400).json({ error: "penalty must be non-negative." });
     if (maxMembers !== undefined && Number(maxMembers) <= 0) return res.status(400).json({ error: "maxMembers must be positive." });
+
+    const t1 = tier1Penalty !== undefined ? parseFloat(tier1Penalty) : undefined;
+    const t2 = tier2Penalty !== undefined ? parseFloat(tier2Penalty) : undefined;
+    const t3 = tier3Penalty !== undefined ? parseFloat(tier3Penalty) : undefined;
+
+    if ([t1, t2, t3].some(v => v !== undefined && v < 0)) {
+        return res.status(400).json({ error: "Penalty tiers must be non-negative." });
+    }
+    if (t1 !== undefined && t2 !== undefined && t3 !== undefined) {
+        if (!(t1 <= t2 && t2 <= t3)) {
+            return res.status(400).json({ error: "Penalty tiers must be in ascending order: Tier 1 ≤ Tier 2 ≤ Tier 3." });
+        }
+    }
 
     try {
         const updated = await prisma.equbPlan.update({
@@ -90,9 +123,15 @@ const updatePlan = async (req, res) => {
             data: {
                 ...(category !== undefined && { category }),
                 ...(amount !== undefined && { amount: parseFloat(amount) }),
-                ...(penalty !== undefined && { penalty: parseFloat(penalty) }),
                 ...(maxMembers !== undefined && { maxMembers: parseInt(maxMembers, 10) }),
                 ...(description !== undefined && { description: description || null }),
+                ...(t1 !== undefined && { tier1Penalty: t1 }),
+                ...(t2 !== undefined && { tier2Penalty: t2 }),
+                ...(t3 !== undefined && { tier3Penalty: t3 }),
+                // Keep legacy penalty in sync with tier3 if tier3 is being updated
+                ...(t3 !== undefined && { penalty: t3 }),
+                // If only legacy penalty sent (old client), honour it
+                ...(penalty !== undefined && t3 === undefined && { penalty: parseFloat(penalty) }),
             }
         });
         res.json({ message: "Plan updated successfully!", plan: updated });
@@ -191,7 +230,7 @@ const updateUserRole = async (req, res) => {
     try {
         const updatedUser = await prisma.user.update({
             where: { id },
-            data: { 
+            data: {
                 role,
                 ...(role === 'ORGANIZER' && { isApproved: true })
             },
@@ -224,6 +263,8 @@ const SETTING_DEFAULTS = {
     sms_mode: 'simulation',
     service_fee_pct: '2',
     maintenance_mode: 'false',
+    chapa_mode: 'sandbox',   // 'sandbox' | 'live'
+    kyc_mode: 'automated', // 'automated' | 'manual'
 };
 
 const getSettings = async (req, res) => {
@@ -265,6 +306,12 @@ const updateSettings = async (req, res) => {
         if (isNaN(fee) || fee < 0 || fee > 100) {
             return res.status(400).json({ error: "service_fee_pct must be a number between 0 and 100." });
         }
+    }
+    if (updates.chapa_mode && !['sandbox', 'live'].includes(updates.chapa_mode)) {
+        return res.status(400).json({ error: "chapa_mode must be 'sandbox' or 'live'." });
+    }
+    if (updates.kyc_mode && !['automated', 'manual'].includes(updates.kyc_mode)) {
+        return res.status(400).json({ error: "kyc_mode must be 'automated' or 'manual'." });
     }
 
     try {
@@ -352,6 +399,119 @@ const updateKYCStatus = async (req, res) => {
     }
 };
 
+// ── 14. Dedicated Analytics Endpoint ─────────────────────────────────────────
+// Kept separate from getAdminStats so a failure in one cannot affect the other.
+async function getAnalytics(req, res) {
+    try {
+        const feeSetting = await prisma.systemSetting.findUnique({ where: { key: 'service_fee_pct' } });
+        const feePct = parseFloat(feeSetting?.value ?? '2');
+
+        // ── Run all queries in parallel ──────────────────────────────────────
+        const [
+            approvedPayments,
+            roleCounts,
+            activeGroupsWithPlans,
+        ] = await Promise.all([
+            // All approved payments with date + category
+            prisma.groupPayment.findMany({
+                where: { status: 'APPROVED' },
+                select: {
+                    amount: true,
+                    penaltyAmount: true,
+                    submittedAt: true,
+                    group: { select: { plan: { select: { category: true } } } },
+                },
+                orderBy: { submittedAt: 'asc' },
+            }),
+
+            // User role breakdown
+            prisma.user.groupBy({
+                by: ['role'],
+                _count: { _all: true },
+            }),
+
+            // Active groups with plan category for counting
+            prisma.equbGroup.findMany({
+                where: { status: { in: ['OPEN', 'ACTIVE'] } },
+                select: { plan: { select: { category: true } } },
+            }),
+        ]);
+
+        // ── Cash Flow — group by month (last 6 months) ───────────────────────
+        const now = new Date();
+        const months = [];
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            months.push({
+                key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+                label: d.toLocaleString('en-US', { month: 'short', year: '2-digit' }),
+            });
+        }
+
+        const inflowMap = {};
+        approvedPayments.forEach(p => {
+            const d = new Date(p.submittedAt);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            inflowMap[key] = (inflowMap[key] || 0) + parseFloat(p.amount ?? 0);
+        });
+
+        const totalInflow = Object.values(inflowMap).reduce((s, v) => s + v, 0);
+        const totalRevenue = parseFloat(((totalInflow * feePct) / 100).toFixed(2));
+        const totalDisb = parseFloat((totalInflow - totalRevenue).toFixed(2));
+
+        const cashFlow = months.map(({ key, label }) => {
+            const inflow = parseFloat((inflowMap[key] || 0).toFixed(2));
+            const ratio = totalInflow > 0 ? inflow / totalInflow : 0;
+            const disbursed = parseFloat((totalDisb * ratio).toFixed(2));
+            const revenue = parseFloat((totalRevenue * ratio).toFixed(2));
+            return { name: label, inflow, disbursed, revenue };
+        });
+
+        // ── User Composition ─────────────────────────────────────────────────
+        const roleMap = { MEMBER: 0, ORGANIZER: 0, ADMIN: 0 };
+        roleCounts.forEach(r => { roleMap[r.role] = r._count._all; });
+
+        const userComposition = [
+            { name: 'Members', value: roleMap.MEMBER, color: '#3b82f6' },
+            { name: 'Organizers', value: roleMap.ORGANIZER, color: '#10b981' },
+            { name: 'Admins', value: roleMap.ADMIN, color: '#8b5cf6' },
+        ];
+
+        // ── Category Performance ─────────────────────────────────────────────
+        const catVolume = { DAILY: 0, WEEKLY: 0, MONTHLY: 0 };
+        approvedPayments.forEach(p => {
+            const cat = p.group?.plan?.category;
+            if (cat && catVolume[cat] !== undefined) {
+                catVolume[cat] += parseFloat(p.amount ?? 0);
+            }
+        });
+
+        const catGroups = { DAILY: 0, WEEKLY: 0, MONTHLY: 0 };
+        activeGroupsWithPlans.forEach(g => {
+            const cat = g.plan?.category;
+            if (cat && catGroups[cat] !== undefined) catGroups[cat]++;
+        });
+
+        const totalCatVol = Object.values(catVolume).reduce((s, v) => s + v, 0) || 1;
+        const categoryPerformance = ['DAILY', 'WEEKLY', 'MONTHLY'].map(cat => ({
+            category: cat.charAt(0) + cat.slice(1).toLowerCase(),
+            volume: parseFloat(catVolume[cat].toFixed(2)),
+            pct: parseFloat(((catVolume[cat] / totalCatVol) * 100).toFixed(1)),
+            groups: catGroups[cat],
+        }));
+
+        return res.json({
+            success: true,
+            cashFlow,
+            userComposition,
+            categoryPerformance,
+        });
+    } catch (error) {
+        console.error('getAnalytics error:', error);
+        return res.status(500).json({ success: false, error: 'Failed to fetch analytics.' });
+    }
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 module.exports = {
     getPendingOrganizers,
@@ -367,4 +527,194 @@ module.exports = {
     updateSettings,
     getKYCRequests,
     updateKYCStatus,
+    getAdminStats,
+    getAnalytics,
 };
+
+// ── 13. Admin Dashboard Stats (dynamic, replaces hardcoded values) ────────────
+// ── 13. Admin Dashboard Stats (dynamic fintech accounting) ─────────────────
+async function getAdminStats(req, res) {
+    try {
+        const feeSetting = await prisma.systemSetting.findUnique({ where: { key: 'service_fee_pct' } });
+        const feePct = parseFloat(feeSetting?.value ?? '2');
+
+        const [
+            totalUsers,
+            pendingOrganizers,
+            activeGroups,
+            userRoleCounts,
+            activeUserCount,
+            allPayments,
+            categoryStats,
+        ] = await Promise.all([
+            prisma.user.count(),
+            prisma.user.count({ where: { role: 'ORGANIZER', isApproved: false } }),
+            prisma.equbGroup.count({ where: { status: { in: ['OPEN', 'ACTIVE'] } } }),
+            // User demographics: count by role
+            prisma.user.groupBy({ by: ['role'], _count: { _all: true } }),
+            // Active users
+            prisma.user.count({ where: { isActive: true } }),
+            // All approved payments with date for monthly grouping
+            prisma.groupPayment.findMany({
+                where: { status: 'APPROVED' },
+                select: { amount: true, submittedAt: true },
+                orderBy: { submittedAt: 'asc' },
+            }),
+            // Category performance: approved payment volume per plan category
+            prisma.groupPayment.findMany({
+                where: { status: 'APPROVED' },
+                select: { amount: true, group: { select: { plan: { select: { category: true } } } } },
+            }),
+        ]);
+
+        // ── Core KPIs ─────────────────────────────────────────────────────────
+        //
+        // ACCOUNTING IDENTITY:
+        //   totalVolume = totalDisbursed + platformRevenue + totalPenalties + escrowBalance
+        //
+        //   totalVolume      = all approved payment amounts (base + penalties)
+        //   totalPenalties   = penalty portion routed to organizers
+        //   releasedBase     = base contributions for RELEASED draw rounds
+        //   unreleasedBase   = base contributions for draw rounds NOT yet released
+        //   platformRevenue  = feePct% of releasedBase (fee on physically sent pots)
+        //   totalDisbursed   = releasedBase - platformRevenue (net to winners)
+        //   escrowBalance    = unreleasedBase (winner selected, pot held pending release)
+        //                      + payments for rounds with no draw yet
+        //   CHECK: releasedBase + unreleasedBase + noDrawBase + penalties = totalVolume
+
+        // 1. Total inflow
+        const paymentAggregate = await prisma.groupPayment.aggregate({
+            where: { status: 'APPROVED' },
+            _sum: { amount: true, penaltyAmount: true },
+        });
+        const totalVolume = parseFloat(paymentAggregate._sum.amount ?? 0);
+        const totalPenaltiesRouted = parseFloat(paymentAggregate._sum.penaltyAmount ?? 0);
+
+        // 2. All draw results with release status
+        const allDrawResults = await prisma.drawResult.findMany({
+            select: { groupId: true, roundNumber: true, cycleNumber: true, isFundsReleased: true },
+        });
+
+        // 3. Bucket payments into released vs unreleased draw rounds
+        let releasedBase = 0;
+        let unreleasedBase = 0;
+
+        if (allDrawResults.length > 0) {
+            const paymentRows = await Promise.all(
+                allDrawResults.map(d =>
+                    prisma.groupPayment.findMany({
+                        where: {
+                            groupId: d.groupId,
+                            roundNumber: d.roundNumber,
+                            cycleNumber: d.cycleNumber,
+                            status: 'APPROVED',
+                        },
+                        select: { amount: true, penaltyAmount: true },
+                    }).then(rows => rows.map(p => ({ ...p, released: d.isFundsReleased })))
+                )
+            );
+            paymentRows.flat().forEach(p => {
+                const base = parseFloat(p.amount) - parseFloat(p.penaltyAmount || 0);
+                if (p.released) releasedBase += base;
+                else unreleasedBase += base;
+            });
+            releasedBase = parseFloat(releasedBase.toFixed(2));
+            unreleasedBase = parseFloat(unreleasedBase.toFixed(2));
+        }
+
+        // 4. Platform fee + net disbursed (only on physically released pots)
+        const platformRevenue = parseFloat(((releasedBase * feePct) / 100).toFixed(2));
+        const totalDisbursed = parseFloat((releasedBase - platformRevenue).toFixed(2));
+
+        // 5. Escrow = unreleased committed pots + any payments for rounds not yet drawn
+        const allDrawBase = releasedBase + unreleasedBase;
+        const noDrawPayments = parseFloat(
+            Math.max(0, totalVolume - allDrawBase - totalPenaltiesRouted).toFixed(2)
+        );
+        const escrowBalance = parseFloat((unreleasedBase + noDrawPayments).toFixed(2));
+
+        // ── User demographics ─────────────────────────────────────────────────
+        const fmt = (n) => {
+            if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M ETB';
+            if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K ETB';
+            return n.toLocaleString() + ' ETB';
+        };
+        const roleMap = { MEMBER: 0, ORGANIZER: 0, ADMIN: 0 };
+        userRoleCounts.forEach(r => { roleMap[r.role] = r._count._all; });
+        const userDemographics = [
+            { role: 'Member', count: roleMap.MEMBER, color: '#3b82f6' },
+            { role: 'Organizer', count: roleMap.ORGANIZER, color: '#10b981' },
+            { role: 'Admin', count: roleMap.ADMIN, color: '#8b5cf6' },
+        ];
+
+        // ── Monthly cash-flow (last 6 months) ────────────────────────────────
+        const now = new Date();
+        const monthLabels = [];
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            monthLabels.push({
+                key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+                label: d.toLocaleString('en-US', { month: 'short', year: '2-digit' }),
+            });
+        }
+        const inflowByMonth = {};
+        allPayments.forEach(p => {
+            const d = new Date(p.submittedAt);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            inflowByMonth[key] = (inflowByMonth[key] || 0) + parseFloat(p.amount ?? 0);
+        });
+        const totalInflowForRatio = Object.values(inflowByMonth).reduce((s, v) => s + v, 0) || 1;
+        const cashFlowData = monthLabels.map(({ key, label }) => {
+            const inflow = parseFloat((inflowByMonth[key] || 0).toFixed(2));
+            const ratio = inflow / totalInflowForRatio;
+            const disbursed = parseFloat((totalDisbursed * ratio).toFixed(2));
+            const revenue = parseFloat((platformRevenue * ratio).toFixed(2));
+            return { month: label, inflow, disbursed, revenue };
+        });
+
+        // ── Category performance ──────────────────────────────────────────────
+        const catMap = { DAILY: 0, WEEKLY: 0, MONTHLY: 0 };
+        categoryStats.forEach(p => {
+            const cat = p.group?.plan?.category;
+            if (cat && catMap[cat] !== undefined) catMap[cat] += parseFloat(p.amount ?? 0);
+        });
+        const catGroupCounts = await prisma.equbGroup.groupBy({
+            by: ['planId'], where: { status: { in: ['OPEN', 'ACTIVE'] } }, _count: { _all: true },
+        });
+        const planIds = catGroupCounts.map(c => c.planId);
+        const plans = planIds.length
+            ? await prisma.equbPlan.findMany({ where: { id: { in: planIds } }, select: { id: true, category: true } })
+            : [];
+        const planCatMap = Object.fromEntries(plans.map(p => [p.id, p.category]));
+        const groupCountByCat = { DAILY: 0, WEEKLY: 0, MONTHLY: 0 };
+        catGroupCounts.forEach(c => {
+            const cat = planCatMap[c.planId];
+            if (cat && groupCountByCat[cat] !== undefined) groupCountByCat[cat] += c._count._all;
+        });
+        const totalCatVol = Object.values(catMap).reduce((s, v) => s + v, 0) || 1;
+        const categoryPerformance = ['DAILY', 'WEEKLY', 'MONTHLY'].map(cat => ({
+            category: cat.charAt(0) + cat.slice(1).toLowerCase(),
+            volume: parseFloat(catMap[cat].toFixed(2)),
+            pct: parseFloat(((catMap[cat] / totalCatVol) * 100).toFixed(1)),
+            groups: groupCountByCat[cat],
+        }));
+
+        res.json({
+            totalUsers, pendingOrganizers, activeGroups,
+            totalVolume, totalDisbursed, platformRevenue, escrowBalance, feePct,
+            formattedVolume: fmt(totalVolume),
+            formattedDisbursed: fmt(totalDisbursed),
+            formattedPlatformRevenue: fmt(platformRevenue),
+            formattedEscrow: fmt(escrowBalance),
+            // Analytics
+            activeUserCount,
+            pendingUserCount: totalUsers - activeUserCount,
+            userDemographics,
+            cashFlowData,
+            categoryPerformance,
+        });
+    } catch (error) {
+        console.error('getAdminStats error:', error);
+        res.status(500).json({ error: 'Failed to fetch admin statistics.' });
+    }
+}

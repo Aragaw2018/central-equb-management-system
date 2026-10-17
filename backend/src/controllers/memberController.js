@@ -1,6 +1,20 @@
 // backend/src/controllers/memberController.js
 const prisma = require('../config/db');
 
+/**
+ * Read kyc_mode from SystemSetting.
+ * Returns 'automated' (default) or 'manual'.
+ * Fail-open on DB errors.
+ */
+async function getKycMode() {
+    try {
+        const s = await prisma.systemSetting.findUnique({ where: { key: 'kyc_mode' } });
+        return s?.value === 'manual' ? 'manual' : 'automated';
+    } catch {
+        return 'automated';
+    }
+}
+
 // 1. Fetch all open groups
 const getOpenGroups = async (req, res) => {
     try {
@@ -39,6 +53,31 @@ const getGroupsByPlan = async (req, res) => {
 const joinGroup = async (req, res) => {
     const { userId, groupId } = req.body;
     try {
+        // ── KYC gate ──────────────────────────────────────────────────────────
+        // In 'automated' mode: member must be VERIFIED before joining.
+        // In 'manual'    mode: admin approves KYC separately — gate is bypassed here
+        //                      (admin KYC review enforces verification manually).
+        const [user, kycMode] = await Promise.all([
+            prisma.user.findUnique({ where: { id: userId }, select: { kycStatus: true } }),
+            getKycMode(),
+        ]);
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        if (kycMode === 'automated' && user.kycStatus !== 'VERIFIED') {
+            return res.status(403).json({
+                error: 'Access Denied: You must complete National Fayda ID verification before joining an Equb group.',
+                code: 'KYC_REQUIRED',
+            });
+        }
+
+        // In manual mode, warn but allow (admin will review KYC separately)
+        const kycWarning = kycMode === 'manual' && user.kycStatus !== 'VERIFIED'
+            ? 'Note: Your Fayda ID is pending admin review. Participation is subject to approval.'
+            : null;
+
         const existing = await prisma.equbMembership.findUnique({
             where: { userId_groupId: { userId, groupId } }
         });
@@ -47,7 +86,7 @@ const joinGroup = async (req, res) => {
         const membership = await prisma.equbMembership.create({
             data: { userId, groupId, status: 'PENDING' }
         });
-        res.status(201).json({ message: "Request sent", membership });
+        res.status(201).json({ message: "Request sent", membership, ...(kycWarning && { kycWarning }) });
     } catch (error) {
         res.status(500).json({ error: "Failed to join group" });
     }
@@ -58,8 +97,8 @@ const getMemberMemberships = async (req, res) => {
     try {
         const memberships = await prisma.equbMembership.findMany({
             where: { userId: req.params.userId },
-            include: { 
-                group: { include: { plan: true, organizer: true } } 
+            include: {
+                group: { include: { plan: true, organizer: true } }
             },
             orderBy: { joinedAt: 'desc' }
         });
@@ -94,8 +133,8 @@ const getMemberWins = async (req, res) => {
     try {
         const wins = await prisma.drawResult.findMany({
             where: { winnerId: req.params.userId },
-            include: { 
-                group: { include: { plan: true } }, 
+            include: {
+                group: { include: { plan: true } },
                 guarantor: { include: { guarantor: true } }
             },
             orderBy: { drawnAt: 'desc' }
@@ -137,12 +176,12 @@ const searchGroupMembers = async (req, res) => {
 };
 
 // 🎯 Export all functions (none should be left behind)
-module.exports = { 
+module.exports = {
     getOpenGroups,
     getGroupsByPlan,
     joinGroup,
     getMemberMemberships,
     getGroupDetails,
     getMemberWins,
-    searchGroupMembers 
+    searchGroupMembers
 };

@@ -34,13 +34,17 @@ model User {
   memberships     EqubMembership[]
   drawWins        DrawResult[]   @relation("DrawWins")
   guarantorRequests   Guarantor[] @relation("GuarantorRequests")
+  notifications   Notification[]
 }
 
 model EqubPlan {
   id           String      @id @default(uuid())
   category     String      // DAILY, WEEKLY, MONTHLY
   amount       Decimal     @db.Decimal(12, 2)
-  penalty      Decimal     @db.Decimal(10, 2)
+  penalty      Decimal     @db.Decimal(10, 2)   // legacy flat penalty — kept for backward compat
+  tier1Penalty Decimal     @default(0) @db.Decimal(10, 2)  // Light   (ቀላል ቅጣት)
+  tier2Penalty Decimal     @default(0) @db.Decimal(10, 2)  // Medium  (መካከለኛ ቅጣት)
+  tier3Penalty Decimal     @default(0) @db.Decimal(10, 2)  // Severe  (ከባድ ቅጣት)
   maxMembers   Int
   description  String?
   createdAt    DateTime    @default(now())
@@ -98,17 +102,19 @@ model GroupPayment {
   groupId        String
   group          EqubGroup      @relation(fields: [groupId], references: [id])
   amount         Decimal        @db.Decimal(12, 2)
-  
-  roundNumber    Int            @default(1) 
-cycleNumber    Int            @default(1)
-  transactionId  String         @unique   
-  receiptImageUrl String?                  
-  status         String         @default("PENDING") 
-  note           String?                  
+  penaltyAmount  Decimal        @default(0) @db.Decimal(10, 2)  // penalty applied at payment time
+  penaltyTier    Int            @default(0)  // 0=none, 1=light, 2=medium, 3=severe
+
+  roundNumber    Int            @default(1)
+  cycleNumber    Int            @default(1)
+  transactionId  String         @unique
+  receiptImageUrl String?
+  status         String         @default("PENDING")
+  note           String?
   submittedAt    DateTime       @default(now())
   reviewedAt     DateTime?
-@@unique([membershipId, cycleNumber, roundNumber]) 
 
+  @@unique([membershipId, cycleNumber, roundNumber])
 }
 
 // Key-value store for admin-controlled system settings
@@ -135,6 +141,19 @@ model DrawResult {
   isFundsReleased Boolean @default(false)
   guarantor    Guarantor?
   @@unique([groupId, cycleNumber, roundNumber])
+}
+
+// In-app notification for a specific user
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String                          // recipient user id
+  user      User     @relation(fields: [userId], references: [id])
+  type      String                          // PAYMENT_CONFIRMED | SUPPLEMENTAL_PAYOUT | PENALTY_RECEIVED | GENERAL
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  metadata  Json?                           // arbitrary JSON (amounts, roundNumber, groupName …)
+  createdAt DateTime @default(now())
 }
 
 // Guarantor (Wase) model for winners

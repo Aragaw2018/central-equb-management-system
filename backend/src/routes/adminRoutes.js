@@ -14,7 +14,13 @@ const {
     getKYCRequests,
     updateKYCStatus,
     updateUserRole,
+    getAdminStats,
+    getAnalytics,
 } = require('../controllers/adminController');
+
+// Dashboard statistics — dynamic counts and volume
+router.get('/stats', getAdminStats);
+router.get('/analytics', getAnalytics);
 
 // Organizer approval routes
 router.get('/pending-organizers', getPendingOrganizers);
