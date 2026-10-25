@@ -7,6 +7,7 @@ import { connectSocket } from '../socket/socketClient';
 const TYPE_META = {
     PAYMENT_CONFIRMED: { icon: <CreditCard size={14} className="text-blue-500" />, bg: 'bg-blue-50', dot: 'bg-blue-400' },
     SUPPLEMENTAL_PAYOUT: { icon: <Gift size={14} className="text-emerald-500" />, bg: 'bg-emerald-50', dot: 'bg-emerald-400' },
+    WIN: { icon: <Gift size={14} className="text-amber-500" />, bg: 'bg-amber-50', dot: 'bg-amber-400' },
     PENALTY_RECEIVED: { icon: <Wallet size={14} className="text-teal-500" />, bg: 'bg-teal-50', dot: 'bg-teal-400' },
     REMINDER: { icon: <BellRing size={14} className="text-amber-500" />, bg: 'bg-amber-50', dot: 'bg-amber-400' },
     GENERAL: { icon: <Info size={14} className="text-slate-400" />, bg: 'bg-slate-50', dot: 'bg-slate-400' },
@@ -128,14 +129,28 @@ export default function NotificationBell({ userId }) {
         return () => document.removeEventListener('mousedown', handler);
     }, [open]);
 
-    // ── Mark all read (API + local state) ──────────────────────────────────
+    // ── Mark all read AND clear from view ──────────────────────────────────
     const handleClearAll = async () => {
+        // Optimistically clear UI immediately for snappy UX
+        setNotifications([]);
         try {
-            await axiosInstance.patch(`/notifications/${userId}/read-all`);
+            // Delete from DB so they never reappear on next fetch
+            await axiosInstance.delete(`/notifications/${userId}/all`);
         } catch {
-            // Best-effort
+            // Best-effort — if delete fails, re-fetch to restore actual state
+            fetchNotifications();
         }
-        setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    };
+
+    // ── Dismiss a single notification ──────────────────────────────────────
+    const handleDismissOne = async (notificationId) => {
+        // Optimistically remove from list
+        setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        try {
+            await axiosInstance.delete(`/notifications/one/${notificationId}`);
+        } catch {
+            // Best-effort — if delete fails silently, item is already visually gone
+        }
     };
 
     return (
@@ -178,12 +193,12 @@ export default function NotificationBell({ userId }) {
                                 )}
                             </div>
                             <div className="flex items-center gap-2">
-                                {unreadCount > 0 && (
+                                {notifications.length > 0 && (
                                     <button
                                         onClick={handleClearAll}
-                                        className="flex items-center gap-1 text-[10px] font-black text-slate-400 hover:text-emerald-600 uppercase tracking-wider transition-colors"
+                                        className="flex items-center gap-1 text-[10px] font-black text-slate-400 hover:text-red-500 uppercase tracking-wider transition-colors"
                                     >
-                                        <CheckCircle2 size={12} /> Mark all read
+                                        <X size={11} /> Clear all
                                     </button>
                                 )}
                                 <button
@@ -208,7 +223,7 @@ export default function NotificationBell({ userId }) {
                                     return (
                                         <div
                                             key={n.id}
-                                            className={`px-5 py-4 flex items-start gap-3 transition-colors ${!n.isRead ? 'bg-blue-50/40' : 'hover:bg-slate-50/60'}`}
+                                            className={`px-4 py-3.5 flex items-start gap-3 transition-colors ${!n.isRead ? 'bg-blue-50/40' : 'hover:bg-slate-50/60'}`}
                                         >
                                             <div className={`w-8 h-8 ${meta.bg} rounded-[0.7rem] flex items-center justify-center shrink-0 mt-0.5`}>
                                                 {meta.icon}
@@ -218,9 +233,19 @@ export default function NotificationBell({ userId }) {
                                                 <p className="text-[11px] font-medium text-slate-600 leading-snug">{n.message}</p>
                                                 <p className="text-[10px] text-slate-400 font-medium mt-1">{relativeTime(n.createdAt)}</p>
                                             </div>
-                                            {!n.isRead && (
-                                                <span className={`w-2 h-2 rounded-full shrink-0 mt-2 ${meta.dot}`} />
-                                            )}
+                                            <div className="flex flex-col items-end gap-1 shrink-0">
+                                                {/* Per-item dismiss ✕ */}
+                                                <button
+                                                    onClick={() => handleDismissOne(n.id)}
+                                                    className="p-0.5 text-slate-200 hover:text-slate-500 transition-colors rounded"
+                                                    aria-label="Dismiss notification"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                                {!n.isRead && (
+                                                    <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
+                                                )}
+                                            </div>
                                         </div>
                                     );
                                 })

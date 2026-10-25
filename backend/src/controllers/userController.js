@@ -2,7 +2,17 @@
 
 const prisma = require('../config/db');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const sendSMS = require('../config/smsService');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'central_equb_jwt_secret_2026';
+const COOKIE_NAME = 'session_token';
+const COOKIE_OPTS = {
+    httpOnly: true,                                      // Not accessible via JS / DevTools
+    secure: process.env.NODE_ENV === 'production',     // HTTPS only in prod
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000,                       // 24 hours in ms
+};
 
 /**
  * 1. USER REGISTRATION
@@ -109,6 +119,15 @@ const loginUser = async (req, res) => {
                 error: "Access Denied. Your organizer account is still pending admin approval."
             });
         }
+
+        // Sign a server-side JWT and set it as an HttpOnly cookie.
+        // The cookie cannot be read or stolen via browser DevTools / JS.
+        const token = jwt.sign(
+            { userId: user.id, role: user.role },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+        res.cookie(COOKIE_NAME, token, COOKIE_OPTS);
 
         res.json({
             message: "Login successful",
@@ -527,6 +546,46 @@ const autoVerifyFayda = async (req, res) => {
     }
 };
 
+/**
+ * GET /api/users/verify-session
+ * Validates the HttpOnly cookie JWT and confirms the user is still active.
+ */
+const verifySession = async (req, res) => {
+    const token = req.cookies?.[COOKIE_NAME];
+    if (!token) {
+        return res.status(401).json({ error: 'No active session. Please log in.' });
+    }
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            select: {
+                id: true, fullName: true, firstName: true, fatherName: true,
+                phoneNumber: true, email: true, role: true,
+                isApproved: true, isActive: true, kycStatus: true,
+                faydaId: true, bankName: true, accountNumber: true, accountHolder: true,
+            },
+        });
+        if (!user || !user.isActive) {
+            res.clearCookie(COOKIE_NAME);
+            return res.status(401).json({ error: 'Account inactive or not found. Please log in.' });
+        }
+        return res.json({ success: true, user });
+    } catch {
+        res.clearCookie(COOKIE_NAME);
+        return res.status(401).json({ error: 'Session invalid or expired. Please log in.' });
+    }
+};
+
+/**
+ * POST /api/users/logout
+ * Clears the HttpOnly session cookie.
+ */
+const logoutUser = (req, res) => {
+    res.clearCookie(COOKIE_NAME);
+    return res.json({ success: true, message: 'Logged out successfully.' });
+};
+
 module.exports = {
     registerUser,
     loginUser,
@@ -539,4 +598,6 @@ module.exports = {
     autoVerifyFayda,
     sendFaydaOTP,
     verifyFaydaOTP,
+    verifySession,
+    logoutUser,
 };

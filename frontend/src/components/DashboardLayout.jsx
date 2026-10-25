@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import logoImg from '../assets/logo.jpg';
+import axiosInstance from '../api/axiosInstance';
 import {
   LayoutDashboard, Users, History, Settings,
   LogOut, Menu, X, User as UserIcon,
@@ -8,21 +9,67 @@ import {
   ChevronRight, DollarSign, FileText, ArrowLeftRight, Building2,
 } from 'lucide-react';
 
+const INACTIVITY_MS = 15 * 60 * 1000; // 15 minutes
+
 function DashboardLayout({ children, role, headerExtra }) {
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
   const user = JSON.parse(localStorage.getItem('user'));
+  const timerRef = useRef(null);
 
-  const handleLogout = () => {
+  // ── Logout helper (used by sign-out button, inactivity, and session error) ──
+  const performLogout = useCallback(async (reason) => {
+    try { await axiosInstance.post('/users/logout'); } catch { /* best-effort */ }
     localStorage.removeItem('user');
     localStorage.removeItem('token');
+    if (reason) alert(reason);
     navigate('/login');
-  };
+  }, [navigate]);
+
+  // ── Session verification on every mount / route change ────────────────────
+  useEffect(() => {
+    // Skip verification on public pages (login redirected back here won't loop)
+    axiosInstance.get('/users/verify-session')
+      .then(res => {
+        // Keep localStorage in sync with the server-verified user object
+        const serverUser = res.data?.user;
+        if (serverUser) {
+          const stored = JSON.parse(localStorage.getItem('user') || '{}');
+          localStorage.setItem('user', JSON.stringify({ ...stored, ...serverUser }));
+        }
+      })
+      .catch(() => {
+        // 401 interceptor already clears storage and redirects to /login
+      });
+  }, [location.pathname]);
+
+  // ── 15-minute inactivity auto-logout ─────────────────────────────────────
+  useEffect(() => {
+    const resetTimer = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => {
+        performLogout(
+          '🔒 Session Expired: You were logged out due to 15 minutes of inactivity for security.'
+        );
+      }, INACTIVITY_MS);
+    };
+
+    const EVENTS = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    EVENTS.forEach(e => window.addEventListener(e, resetTimer, { passive: true }));
+    resetTimer(); // start the initial timer
+
+    return () => {
+      EVENTS.forEach(e => window.removeEventListener(e, resetTimer));
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [performLogout]);
+
+  const handleLogout = () => performLogout(null);
 
   // 1. ADMIN NAVIGATION MENU
   const adminMenuItems = [
-    { icon: <ShieldAlert size={22} />, label: 'Approval Requests', path: '/admin-dashboard' },
+    { icon: <LayoutDashboard size={22} />, label: 'Overview', path: '/admin-dashboard' },
     { icon: <PlusCircle size={22} />, label: 'Manage Plans', path: '/admin/plans' },
     { icon: <Users size={22} />, label: 'System Users', path: '/admin/users' },
     { icon: <ScanFace size={22} />, label: 'KYC Verification', path: '/admin/kyc' },

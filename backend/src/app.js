@@ -20,7 +20,11 @@ const checkMaintenance = require('./middlewares/checkMaintenance');
 const app = express();
 
 // ── 2. Core Middleware ────────────────────────────────────────────────────────
-app.use(cors());
+app.use(cors({
+    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    credentials: true,   // Required for HttpOnly cookies to be sent/received
+}));
+app.use(require('cookie-parser')());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

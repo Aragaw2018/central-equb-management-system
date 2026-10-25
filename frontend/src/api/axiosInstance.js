@@ -2,6 +2,7 @@ import axios from 'axios';
 
 const axiosInstance = axios.create({
     baseURL: 'http://localhost:5000/api',
+    withCredentials: true,   // Send/receive HttpOnly cookies on every request
 });
 
 // ── Request interceptor ───────────────────────────────────────────────────────
@@ -20,15 +21,25 @@ axiosInstance.interceptors.request.use((config) => {
 });
 
 // ── Response interceptor ──────────────────────────────────────────────────────
-// If the backend returns 503 with code MAINTENANCE_MODE, redirect non-admin
-// users to the maintenance page immediately.
 axiosInstance.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (
-            error.response?.status === 503 &&
-            error.response?.data?.code === 'MAINTENANCE_MODE'
-        ) {
+        const status = error.response?.status;
+        const code = error.response?.data?.code;
+
+        // 401 — session invalid/expired or ID spoofed.
+        // Clear local state and redirect to login so the user must re-authenticate.
+        if (status === 401) {
+            localStorage.removeItem('user');
+            localStorage.removeItem('token');
+            // Avoid redirect loops when already on the login page
+            if (!window.location.pathname.includes('/login')) {
+                window.location.href = '/login';
+            }
+        }
+
+        // 503 — maintenance mode: redirect non-admin users
+        if (status === 503 && code === 'MAINTENANCE_MODE') {
             try {
                 const user = JSON.parse(localStorage.getItem('user') || 'null');
                 if (user?.role !== 'ADMIN') {
@@ -38,6 +49,7 @@ axiosInstance.interceptors.response.use(
                 window.location.href = '/maintenance';
             }
         }
+
         return Promise.reject(error);
     }
 );

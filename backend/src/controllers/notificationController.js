@@ -12,9 +12,9 @@ const getNotifications = async (req, res) => {
 
     try {
         const notifications = await prisma.notification.findMany({
-            where:   { userId },
+            where: { userId },
             orderBy: { createdAt: 'desc' },
-            take:    30,
+            take: 30,
         });
         res.json(notifications);
     } catch (err) {
@@ -34,7 +34,7 @@ const markAllRead = async (req, res) => {
     try {
         await prisma.notification.updateMany({
             where: { userId, isRead: false },
-            data:  { isRead: true },
+            data: { isRead: true },
         });
         res.json({ success: true });
     } catch (err) {
@@ -52,7 +52,7 @@ const markOneRead = async (req, res) => {
     try {
         await prisma.notification.update({
             where: { id: notificationId },
-            data:  { isRead: true },
+            data: { isRead: true },
         });
         res.json({ success: true });
     } catch (err) {
@@ -91,4 +91,35 @@ const createNotification = async ({ userId, type, title, message, metadata = nul
     return notification;
 };
 
-module.exports = { getNotifications, markAllRead, markOneRead, createNotification };
+/**
+ * DELETE /api/notifications/:userId/all
+ * Permanently deletes ALL notifications for a user (clear-all).
+ */
+const deleteAllForUser = async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'userId is required.' });
+    try {
+        await prisma.notification.deleteMany({ where: { userId } });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[Notification] deleteAllForUser error:', err.message);
+        res.status(500).json({ error: 'Failed to delete notifications.' });
+    }
+};
+
+/**
+ * DELETE /api/notifications/one/:notificationId
+ * Permanently deletes a single notification by id.
+ */
+const deleteOne = async (req, res) => {
+    const { notificationId } = req.params;
+    try {
+        await prisma.notification.delete({ where: { id: notificationId } });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[Notification] deleteOne error:', err.message);
+        res.status(500).json({ error: 'Failed to delete notification.' });
+    }
+};
+
+module.exports = { getNotifications, markAllRead, markOneRead, createNotification, deleteAllForUser, deleteOne };

@@ -434,15 +434,31 @@ const verifyChapaPayment = async (req, res) => {
             const netWinnerAmount = parseFloat((baseAmount * (1 - PLATFORM_FEE_RATIO)).toFixed(2));
             const platformFee = parseFloat((baseAmount * PLATFORM_FEE_RATIO).toFixed(2));
 
-            // 4a. In-app notification for the winner (supplemental payout)
+            // ── Step A: Atomically increment DrawResult.potAmount ──────────
+            //    Using Prisma's built-in `increment` makes the update race-condition
+            //    safe — no read-modify-write required.
+            try {
+                await prisma.drawResult.update({
+                    where: { id: existingDraw.id },
+                    data: { potAmount: { increment: baseAmount } },
+                });
+                console.log(
+                    `[Payment] DrawResult ${existingDraw.id} potAmount +${baseAmount} ETB ` +
+                    `(base contribution from ${memberUser.fullName})`
+                );
+            } catch (updateErr) {
+                console.warn(`[Payment] DrawResult potAmount update failed (non-critical): ${updateErr.message}`);
+            }
+
+            // ── Step B: In-app notification for the winner (WIN type) ──────
             try {
                 await createNotification({
                     userId: existingDraw.winnerId,
-                    type: 'SUPPLEMENTAL_PAYOUT',
-                    title: 'Supplemental Payout Received',
-                    message: `You received ${netWinnerAmount.toLocaleString()} ETB from ` +
-                        `${memberUser.fullName} for Round ${roundNumber} ` +
-                        `(${groupName}) via Telebirr/Bank. ` +
+                    type: 'WIN',
+                    title: 'Supplemental Pot Payout',
+                    message: `You received a supplemental payout of ${netWinnerAmount.toLocaleString()} ETB ` +
+                        `from ${memberUser.fullName} to complete your Round ${roundNumber} ` +
+                        `winnings for ${groupName}. ` +
                         `(${platformFee.toLocaleString()} ETB platform fee deducted)`,
                     metadata: {
                         paymentId: payment.id,
@@ -459,20 +475,17 @@ const verifyChapaPayment = async (req, res) => {
                     io,
                 });
 
-                // Simulated SMS log — winner
+                // Simulated SMS / terminal log — winner
                 console.log('─────────────────────────────────────────');
-                console.log(`📱 SMS SIMULATION  →  ${existingDraw.winner.phoneNumber}`);
-                console.log(
-                    `💬 MESSAGE: Supplemental Payout: You received ` +
-                    `${netWinnerAmount.toLocaleString()} ETB from ${memberUser.fullName} ` +
-                    `for Round ${roundNumber} (${groupName}) via Telebirr/Bank.`
-                );
+                console.log(`[SUPPLEMENTAL PAYOUT] → Winner: ${existingDraw.winner.fullName} (${existingDraw.winner.phoneNumber})`);
+                console.log(`   Base: ${baseAmount} ETB | Fee: ${platformFee} ETB (${feePct}%) | Net: ${netWinnerAmount} ETB`);
+                console.log(`   From: ${memberUser.fullName} | Group: ${groupName} | Round ${roundNumber}`);
                 console.log('─────────────────────────────────────────');
             } catch (notifErr) {
-                console.warn(`[Payment] Winner notification failed (non-critical): ${notifErr.message}`);
+                console.warn(`[Payment] Winner WIN notification failed (non-critical): ${notifErr.message}`);
             }
 
-            // 4b. In-app notification for the organizer (penalty credit)
+            // ── Step C: Penalty notification to organizer ──────────────────
             if (penaltyAmount > 0) {
                 try {
                     await createNotification({
@@ -495,14 +508,9 @@ const verifyChapaPayment = async (req, res) => {
                         io,
                     });
 
-                    // Simulated SMS log — organizer
                     console.log('─────────────────────────────────────────');
-                    console.log(`📱 SMS SIMULATION  →  ${organizer.phoneNumber}`);
-                    console.log(
-                        `💬 MESSAGE: Dear ${organizer.fullName}, you received a ` +
-                        `${penaltyAmount.toLocaleString()} ETB late penalty fee from ` +
-                        `${memberUser.fullName} for ${groupName} (Round ${roundNumber}) via Telebirr.`
-                    );
+                    console.log(`[PENALTY ROUTED] → Organizer: ${organizer.fullName} (${organizer.phoneNumber})`);
+                    console.log(`   Penalty: ${penaltyAmount} ETB from ${memberUser.fullName} | Round ${roundNumber}`);
                     console.log('─────────────────────────────────────────');
                 } catch (notifErr) {
                     console.warn(`[Payment] Organizer penalty notification failed (non-critical): ${notifErr.message}`);
@@ -511,11 +519,12 @@ const verifyChapaPayment = async (req, res) => {
 
             return res.json({
                 success: true,
-                message: 'Late payment verified and funds routed successfully.',
+                message: 'Late payment verified and funds routed to winner successfully.',
                 isPostDraw: true,
                 netWinnerAmount,
                 penaltyAmount,
                 platformFee,
+                feePct,
                 payment,
             });
         }

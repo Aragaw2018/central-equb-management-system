@@ -49,4 +49,12 @@ router.post('/send-fayda-otp', upload.single('faydaImage'), userController.sendF
 // 2-step Fayda eKYC: Step 2 — submit OTP → mark VERIFIED
 router.post('/verify-fayda-otp', userController.verifyFaydaOTP);
 
+// ── Session security ──────────────────────────────────────────────────────────
+
+// Verify the HttpOnly cookie session (called by DashboardLayout on every mount)
+router.get('/verify-session', userController.verifySession);
+
+// Logout — clears the HttpOnly cookie
+router.post('/logout', userController.logoutUser);
+
 module.exports = router;
